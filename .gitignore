@@ -1,0 +1,12 @@
+# build output; build/appicon.png and build/windows/icon.ico are committed
+# (from `go run ./cmd/genicon`) so wails build never falls back to its default icon
+build/bin/
+
+# release packages are uploaded to GitHub Releases, not committed
+release/
+
+frontend/node_modules/
+frontend/dist/*
+!frontend/dist/.gitkeep
+frontend/wailsjs/
+frontend/package.json.md5
