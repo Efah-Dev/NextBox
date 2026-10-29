@@ -22,6 +22,8 @@ with a rewritten launcher-style interface, the current sing-box configuration fo
 > NextBox is an independent project. It is **not affiliated with or endorsed by** SagerNet / sing-box
 > or MatsuriDayo / nekoray.
 
+<img width="1080" height="678" alt="e9f13975-0382-4f8a-b234-2e2f00915c4e" src="https://github.com/user-attachments/assets/b9a49f0b-affc-4c6e-9bd4-14d282e9f676" />
+
 ## Features
 
 | | |
