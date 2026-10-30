@@ -29,7 +29,7 @@ var i18nEN []byte
 //go:embed frontend/src/i18n/zh-TW.json
 var i18nTW []byte
 
-const Version = "1.0.0"
+const Version = "1.0.2"
 
 func main() {
 	startMinimised := false

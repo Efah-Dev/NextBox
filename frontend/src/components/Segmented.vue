@@ -27,7 +27,8 @@ const index = computed(() => Math.max(0, props.options.findIndex((o) => o.value 
 .seg {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(var(--n), 1fr);
+  /* equal columns that never grow past the control, even with long labels */
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
   background: var(--hover);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -48,8 +49,11 @@ const index = computed(() => Math.max(0, props.options.findIndex((o) => o.value 
 .seg-btn {
   position: relative;
   height: 28px;
-  padding: 0 10px;
+  min-width: 0;
+  padding: 0 4px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border: none;
   background: transparent;
   font: inherit;

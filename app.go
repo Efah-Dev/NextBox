@@ -34,7 +34,8 @@ type App struct {
 	store   *store.Store
 	logs    *logBuffer
 
-	opMu sync.Mutex // serialises connect / disconnect / restart
+	opMu      sync.Mutex // serialises connect / disconnect / restart
+	ruleSetMu sync.Mutex // serialises writes to the rule-set directory
 
 	mu           sync.Mutex // guards the fields below
 	proc         *core.Process
@@ -88,7 +89,7 @@ func (a *App) startup(ctx context.Context) {
 	// also prunes files older than the retention period
 	a.applyLogFile(store.Settings{}, s)
 	a.startTray()
-	a.logs.onFlush = func(lines []string) { wruntime.EventsEmit(a.ctx, "logs", lines) }
+	a.logs.onFlush = func(b LogBatch) { wruntime.EventsEmit(a.ctx, "logs", b) }
 
 	// A crash may have left the system proxy pointing at us.
 	sys.ClearSystemProxy(proxyAddr(s))
@@ -97,6 +98,9 @@ func (a *App) startup(ctx context.Context) {
 	if _, err := os.Stat(a.corePath()); err != nil {
 		a.log(i18n.T("未找到内核: ") + a.corePath())
 	}
+	// Get the rule-sets ready in the background; a failure (no network, a
+	// timeout) is only logged, connecting simply skips the affected rules.
+	go a.ensureRuleSets()
 	if s.ConnectOnStart && st.SelectedID() != 0 {
 		go func() {
 			if err := a.Connect(); err != nil {
@@ -262,16 +266,14 @@ func (a *App) startLocked() error {
 		return err
 	}
 	api := core.NewAPI("127.0.0.1:"+strconv.Itoa(port), core.RandomSecret())
-	in := config.Input{Settings: s, Node: node, ClashAPI: api.Addr, Secret: api.Secret, RuleSetDir: a.ruleSetDir()}
-	cfg, err := config.Build(in)
-	var missing *config.MissingRuleSetsError
-	if errors.As(err, &missing) {
-		a.log(i18n.T("正在下载规则集: ") + strings.Join(missing.Names, ", "))
-		if err := a.downloadRuleSets(missing.Names, ""); err != nil {
-			return err
-		}
-		cfg, err = config.Build(in)
+	if missing := a.ensureRuleSets(); len(missing) > 0 {
+		a.log(i18n.T("规则集不可用，已暂时跳过相关规则: ") + strings.Join(missing, ", "))
 	}
+	in := config.Input{
+		Settings: s, Node: node, ClashAPI: api.Addr, Secret: api.Secret,
+		RuleSetDir: a.ruleSetDir(), SkipMissingRuleSets: true,
+	}
+	cfg, err := config.Build(in)
 	if err != nil {
 		return err
 	}
@@ -752,7 +754,7 @@ func (a *App) CloseConnection(id string) error {
 	return api.CloseConnection(a.ctx, id)
 }
 
-func (a *App) GetLogs() []string { return a.logs.Lines() }
+func (a *App) GetLogs() LogBatch { return a.logs.Snapshot() }
 
 func (a *App) ClearLogs() { a.logs.Clear() }
 
@@ -768,7 +770,10 @@ func (a *App) UpdateRuleSets() (string, error) {
 	if a.isRunning() {
 		proxy = "http://" + proxyAddr(s)
 	}
-	if err := a.downloadRuleSets(names, proxy); err != nil {
+	a.ruleSetMu.Lock()
+	err := a.fetchRuleSetsLocked(names, proxy)
+	a.ruleSetMu.Unlock()
+	if err != nil {
 		return "", err
 	}
 	go a.restartIfRunning()
@@ -777,13 +782,16 @@ func (a *App) UpdateRuleSets() (string, error) {
 
 // ---------------------------------------------------------------- misc
 
+// RestartAsAdmin starts an elevated instance and exits this one, like
+// nekoray. It must really quit: with close-to-tray on, a plain Quit would only
+// hide the window, and the new instance would hand over to this one.
 func (a *App) RestartAsAdmin() error {
 	if err := sys.RestartAsAdmin(); err != nil {
 		return err
 	}
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		wruntime.Quit(a.ctx)
+		a.Quit()
 	}()
 	return nil
 }

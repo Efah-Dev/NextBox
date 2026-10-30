@@ -2,13 +2,16 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"nextbox/internal/link"
+	"nextbox/internal/ruleset"
 	"nextbox/internal/store"
 )
 
@@ -66,8 +69,14 @@ func sampleProfiles(t *testing.T) []store.Profile {
 func TestMainConfigAccepted(t *testing.T) {
 	bin := singBox(t)
 	ruleDir := t.TempDir()
+	// rule mode uses the bundled rule-sets, as with the default local mirror
+	for _, name := range []string{"geosite-cn", "geoip-cn"} {
+		if err := ruleset.Install(name, filepath.Join(ruleDir, name+".srs")); err != nil {
+			t.Fatal(err)
+		}
+	}
 	profiles := sampleProfiles(t)
-	for _, mode := range []string{"global", "direct"} {
+	for _, mode := range []string{"rule", "global", "direct"} {
 		for _, p := range profiles {
 			s := store.DefaultSettings()
 			s.RouteMode = mode
@@ -82,6 +91,37 @@ func TestMainConfigAccepted(t *testing.T) {
 			}
 			t.Run(mode+"/"+p.Name, func(t *testing.T) { check(t, bin, cfg) })
 		}
+	}
+}
+
+// A rule-set that could not be fetched must not stop the core from starting:
+// only the rules that need it are left out.
+func TestSkipMissingRuleSets(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "geoip-cn.srs"), []byte("x"), 0o644)
+	s := store.DefaultSettings() // rule mode
+	s.BlockAds = true
+	node := sampleProfiles(t)[0]
+	in := Input{Settings: s, Node: &node, ClashAPI: "127.0.0.1:9090", Secret: "x", RuleSetDir: dir}
+
+	var missing *MissingRuleSetsError
+	if _, err := Build(in); !errors.As(err, &missing) || len(missing.Names) != 2 {
+		t.Fatalf("want missing geosite-cn and ads, got %v", err)
+	}
+
+	in.SkipMissingRuleSets = true
+	cfg, err := Build(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(cfg)
+	for _, name := range []string{"geosite-cn", "geosite-category-ads-all"} {
+		if strings.Contains(string(b), name) {
+			t.Errorf("config still references missing %s", name)
+		}
+	}
+	if !strings.Contains(string(b), `"geoip-cn"`) {
+		t.Error("available geoip-cn rule was dropped")
 	}
 }
 

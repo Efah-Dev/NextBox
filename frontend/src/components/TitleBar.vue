@@ -23,9 +23,26 @@ const w = window as any
 let lastDown = { t: 0, x: 0, y: 0 }
 let press: { x: number; y: number } | null = null
 
+// A maximised window's edges lie on the screen edges, yet Wails still treats
+// the outer 6px as resize borders. Double-clicking the title bar at the very
+// top of the screen (where the mouse lands when thrown upwards) then started
+// a resize that does nothing on a maximised window, instead of restoring it.
+// So the resize borders are switched off while maximised.
+let maximised = false
+async function syncMaximised() {
+  maximised = !!(await w.runtime?.WindowIsMaximised?.())
+  const flags = w.wails?.flags
+  if (!flags) return
+  flags.enableResize = !maximised
+  if (maximised && flags.resizeEdge) {
+    flags.resizeEdge = undefined
+    document.documentElement.style.cursor = ''
+  }
+}
+
 function onMouseDown(e: MouseEvent) {
   if (e.button !== 0 || (e.target as HTMLElement).closest('.tabs, .win')) return
-  if (w.wails?.flags?.resizeEdge) return // let Wails resize from the top edge
+  if (!maximised && w.wails?.flags?.resizeEdge) return // let Wails resize from the top edge
   e.stopPropagation() // keep Wails' own drag handler out of it
   const now = performance.now()
   const near = Math.abs(e.screenX - lastDown.x) < 6 && Math.abs(e.screenY - lastDown.y) < 6
@@ -55,10 +72,13 @@ const release = () => (press = null)
 onMounted(() => {
   window.addEventListener('mousemove', onMouseMove)
   window.addEventListener('mouseup', release)
+  window.addEventListener('resize', syncMaximised)
+  syncMaximised()
 })
 onUnmounted(() => {
   window.removeEventListener('mousemove', onMouseMove)
   window.removeEventListener('mouseup', release)
+  window.removeEventListener('resize', syncMaximised)
 })
 
 const modeLabel = { system: t('系统代理'), tun: t('TUN 模式'), '': t('已连接') }

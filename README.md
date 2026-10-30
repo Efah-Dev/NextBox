@@ -43,7 +43,7 @@ with a rewritten launcher-style interface, the current sing-box configuration fo
 
 ## Download
 
-Get `NextBox-v1.0.0-windows-amd64.zip` from the [Releases](../../releases) page.
+Get `NextBox-v1.0.2-windows-amd64.zip` from the [Releases](../../releases) page.
 
 **Requirements:** Windows 10 / 11, 64-bit, with Microsoft Edge WebView2 Runtime (preinstalled on Windows 11
 and on up-to-date Windows 10).
@@ -95,8 +95,11 @@ To move NextBox to another PC, copy the whole folder.
 **TUN mode can't be turned on.** It needs administrator rights. Use *Restart as administrator* (Home page
 or Settings → TUN).
 
-**Connecting in rule mode fails with "rule-set download failed".** The geosite / geoip rule-sets are
-downloaded on first use. Pick another mirror in Settings → Routing → *Rule-set mirror*.
+**Do rule-sets need a download?** The default *Local built-in* mirror uses the rule-sets shipped inside
+the program (bypass China domains and China IPs), so no network is needed. Other rule-sets (ad blocking,
+geosite:xxx) are downloaded on first use; a failure or timeout is only reported in the log, the connection
+still starts and just skips those rules. To retry, pick a mirror in Settings → Routing → *Rule-set mirror*
+and click *Update rule-sets*.
 
 **A node is skipped on import.** The import message and the Logs page say why. Xray-only features such as
 the XHTTP transport and VLESS encryption are not supported by sing-box.

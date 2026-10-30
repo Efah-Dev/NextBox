@@ -352,11 +352,16 @@ body {
   filter: grayscale(0.3) brightness(0.95);
   cursor: progress;
 }
+/* padding-left balances the trailing letter-spacing so the text stays centred */
 .launch-main {
   font-size: 18px;
   font-weight: 700;
-  letter-spacing: 0.3em;
-  padding-left: 0.3em;
+  letter-spacing: 0.12em;
+  padding-left: 0.12em;
+}
+:lang(en) .launch-main {
+  letter-spacing: 0.02em;
+  padding-left: 0.02em;
 }
 .launch-sub {
   font-size: 12px;
@@ -368,9 +373,6 @@ body {
   color: var(--accent);
   border: 1.5px solid var(--accent);
   box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 18%, transparent);
-}
-.launch.on .launch-main {
-  letter-spacing: 0.12em;
 }
 
 /* ---------------------------------------------------------------- inputs */

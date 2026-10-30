@@ -29,10 +29,13 @@ type Input struct {
 	ClashAPI   string         // "127.0.0.1:port"
 	Secret     string
 	RuleSetDir string
+	// SkipMissingRuleSets leaves out the rules that need a rule-set file which
+	// is not on disk, instead of failing with *MissingRuleSetsError.
+	SkipMissingRuleSets bool
 }
 
 // Build generates the main config. It returns *MissingRuleSetsError when a
-// required rule-set file has not been downloaded yet.
+// required rule-set file has not been downloaded yet (see SkipMissingRuleSets).
 func Build(in Input) (map[string]any, error) {
 	s := in.Settings
 	if in.Node == nil && s.RouteMode != "direct" {
@@ -40,7 +43,10 @@ func Build(in Input) (map[string]any, error) {
 	}
 	rules := collectRules(s)
 	if missing := MissingRuleSets(in.RuleSetDir, rules.ruleSets()); len(missing) > 0 {
-		return nil, &MissingRuleSetsError{Names: missing}
+		if !in.SkipMissingRuleSets {
+			return nil, &MissingRuleSetsError{Names: missing}
+		}
+		rules = rules.without(missing)
 	}
 
 	// ---- outbounds ----
@@ -91,7 +97,7 @@ func Build(in Input) (map[string]any, error) {
 			r["server"] = TagDNSDirect
 			dnsRules = append(dnsRules, r)
 		}
-		if s.RouteMode == "rule" {
+		if rules.hasBuiltin("geosite-cn") {
 			dnsRules = append(dnsRules, map[string]any{"rule_set": []string{"geosite-cn"}, "server": TagDNSDirect})
 		}
 	}
@@ -158,11 +164,10 @@ func Build(in Input) (map[string]any, error) {
 			r["outbound"] = TagDirect
 			routeRules = append(routeRules, r)
 		}
-		if s.RouteMode == "rule" {
-			routeRules = append(routeRules,
-				map[string]any{"rule_set": []string{"geosite-cn"}, "outbound": TagDirect},
-				map[string]any{"rule_set": []string{"geoip-cn"}, "outbound": TagDirect},
-			)
+		for _, name := range []string{"geosite-cn", "geoip-cn"} {
+			if rules.hasBuiltin(name) {
+				routeRules = append(routeRules, map[string]any{"rule_set": []string{name}, "outbound": TagDirect})
+			}
 		}
 	}
 	ruleSets := []any{}
@@ -456,6 +461,35 @@ func (u userRules) ruleSets() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func (u userRules) hasBuiltin(name string) bool {
+	for _, s := range u.builtin {
+		if s == name {
+			return true
+		}
+	}
+	return false
+}
+
+// without drops every reference to the given rule-sets.
+func (u userRules) without(names []string) userRules {
+	drop := map[string]bool{}
+	for _, n := range names {
+		drop[n] = true
+	}
+	keep := func(list []string) []string {
+		var out []string
+		for _, s := range list {
+			if !drop[s] {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	u.builtin = keep(u.builtin)
+	u.block.sets, u.proxy.sets, u.direct.sets = keep(u.block.sets), keep(u.proxy.sets), keep(u.direct.sets)
+	return u
 }
 
 // usesProcess reports whether any rule matches by process name, which needs

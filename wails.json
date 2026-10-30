@@ -11,7 +11,7 @@
   },
   "info": {
     "productName": "NextBox",
-    "productVersion": "1.0.0",
+    "productVersion": "1.0.2",
     "copyright": "GPL-3.0-or-later",
     "comments": "A modern sing-box GUI client based on NekoBox for PC (nekoray)"
   }

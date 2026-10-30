@@ -125,6 +125,12 @@ export interface CoreInfo {
   cgo: string
 }
 
+/** Consecutive log lines; next = lines logged so far, up to the last one. */
+export interface LogBatch {
+  lines: string[]
+  next: number
+}
+
 export interface LatencyResult {
   id: number
   latency: number
@@ -170,7 +176,7 @@ export const api = {
 
   getConnections: () => call<Connections>('GetConnections'),
   closeConnection: (id: string) => call<void>('CloseConnection', id),
-  getLogs: () => call<string[]>('GetLogs'),
+  getLogs: () => call<LogBatch>('GetLogs'),
   clearLogs: () => call<void>('ClearLogs'),
   getLogFilesInfo: () => call<{ count: number; bytes: number; dir: string }>('GetLogFilesInfo'),
   clearLogFiles: () => call<number>('ClearLogFiles'),

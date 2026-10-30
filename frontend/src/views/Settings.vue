@@ -31,6 +31,7 @@ const testUrls = [
   { label: 'Cloudflare', value: 'https://cp.cloudflare.com/generate_204' },
 ]
 const mirrors = [
+  { label: t('本地内置（绕过中国域名和 IP）'), value: 'local' },
   { label: 'jsDelivr（Cloudflare）', value: 'https://testingcf.jsdelivr.net/gh/SagerNet/sing-{kind}@rule-set/{name}.srs' },
   { label: 'jsDelivr', value: 'https://cdn.jsdelivr.net/gh/SagerNet/sing-{kind}@rule-set/{name}.srs' },
   { label: 'GitHub Raw', value: 'https://raw.githubusercontent.com/SagerNet/sing-{kind}/rule-set/{name}.srs' },
@@ -175,7 +176,7 @@ function onScroll() {
           <div class="control"><Switch v-model="form.connectOnStart" /></div>
         </div>
         <div class="form-row">
-          <div class="label">{{ t('开机自启') }}<span class="hint">{{ t('登录 Windows 后在托盘中启动') }}</span></div>
+          <div class="label">{{ t('开机自启') }}<span class="hint">{{ t('启动 Windows 后自动运行') }}</span></div>
           <div class="control"><Switch v-model="form.autoStart" /></div>
         </div>
         <div class="form-row">
@@ -393,23 +394,15 @@ function onScroll() {
           </div>
         </div>
         <div class="core">
-          <div class="core-title">{{ t('代理内核') }}</div>
           <template v-if="core?.found">
             <div class="core-grid">
-              <span class="faint">{{ t('版本') }}</span>
+              <span class="faint">{{ t('内核版本') }}</span>
               <span>
                 sing-box <b>{{ core.version }}</b>
                 <span class="badge" :class="{ testing: core.channel === 'testing' }">
                   {{ core.channel === 'testing' ? t('testing 测试分支') : t('stable 稳定分支') }}
                 </span>
               </span>
-              <span class="faint">{{ t('来源') }}</span>
-              <span>
-                <a @click="api.openURL(`https://github.com/SagerNet/sing-box/releases/tag/v${core.version}`)">SagerNet/sing-box</a>
-                {{ t('· {0} 分支 · v{1}', core.channel, core.version) }}<template v-if="core.revision"> · {{ core.revision.slice(0, 10) }}</template>
-              </span>
-              <span class="faint">{{ t('编译环境') }}</span>
-              <span class="mono">{{ core.environment }}<template v-if="core.cgo"> · CGO {{ core.cgo }}</template></span>
               <span class="faint">{{ t('启用功能') }}</span>
               <span class="mono tags">{{ core.tags.split(',').join(' · ') }}</span>
             </div>
@@ -417,10 +410,9 @@ function onScroll() {
           <div v-else class="faint">{{ t('未找到内核：{0}', state.app?.corePath) }}</div>
         </div>
         <div class="credits">
+          <div>{{ t('项目地址：') }}<a @click="api.openURL('https://github.com/Efah-Dev/NextBox')">Efah-Dev/NextBox</a></div>
           <div>{{ t('原项目：') }}<a @click="api.openURL('https://github.com/MatsuriDayo/nekoray')">MatsuriDayo/nekoray</a></div>
           <div>{{ t('规则集：SagerNet/sing-geosite、sing-geoip') }}</div>
-          <div>{{ t('字体：思源黑体 Noto Sans SC（SIL Open Font License）') }}</div>
-          <div>{{ t('开发协助：Claude Opus 5.5（Anthropic）') }}</div>
           <div class="faint">{{ t('本软件以 GPL-3.0-or-later 协议开源。') }}</div>
         </div>
       </Card>
@@ -510,13 +502,9 @@ function onScroll() {
   border-radius: var(--radius-sm);
   background: var(--hover);
 }
-.core-title {
-  font-weight: 700;
-  margin-bottom: 8px;
-}
 .core-grid {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: max-content 1fr;
   gap: 6px 12px;
   line-height: 1.6;
 }

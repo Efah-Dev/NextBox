@@ -215,13 +215,15 @@ const moreItems = computed<MenuItem[]>(() => [
         <Menu :items="moreItems" />
       </div>
 
-      <div v-if="filtered.length" class="list-head">
-        <span />
-        <span>{{ t('名称') }}</span>
-        <span class="col-type">{{ t('协议') }}</span>
-        <span>{{ t('服务器') }}</span>
-        <span class="right">{{ t('延迟') }}</span>
-        <span />
+      <div v-if="filtered.length" class="list-head-wrap">
+        <div class="list-head">
+          <span />
+          <span>{{ t('名称') }}</span>
+          <span class="center">{{ t('协议') }}</span>
+          <span>{{ t('服务器') }}</span>
+          <span class="center">{{ t('延迟') }}</span>
+          <span />
+        </div>
       </div>
       <div class="list scroll">
         <div
@@ -277,10 +279,15 @@ const moreItems = computed<MenuItem[]>(() => [
   flex: 1;
   min-height: 0;
 }
+/* side by side when both labels fit, otherwise one button per row */
 .side-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+.side-actions .btn {
+  flex: 1 1 auto;
+  padding: 0 10px;
 }
 .usage {
   padding: 12px;
@@ -331,13 +338,28 @@ const moreItems = computed<MenuItem[]>(() => [
   width: 200px;
 }
 
+/* The header sits in a box with exactly the same horizontal geometry as the
+   list, including an always-present (empty) scrollbar, so both get the same
+   width whatever the WebView's scrollbar width or DPI is, and the columns
+   line up. */
+.list,
+.list-head-wrap {
+  margin: 0 -6px;
+  padding-left: 6px;
+  padding-right: 6px;
+  overflow-x: hidden;
+  overflow-y: scroll;
+}
+.list-head-wrap {
+  flex-shrink: 0;
+  padding-top: 2px;
+  margin-bottom: -6px;
+}
 .list {
   flex: 1;
   min-height: 0;
-  margin: 0 -6px;
-  padding: 2px 6px 8px;
-  /* always reserve the scrollbar width so rows and the header row line up */
-  scrollbar-gutter: stable;
+  padding-top: 2px;
+  padding-bottom: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -355,14 +377,16 @@ const moreItems = computed<MenuItem[]>(() => [
   font-size: 12px;
   font-weight: 600;
   color: var(--text-3);
-  /* 1px = row border, 9px = row border + 8px scrollbar gutter */
-  margin: 2px 9px -6px 1px;
+  /* same side borders as a row */
+  border-left: 1px solid transparent;
+  border-right: 1px solid transparent;
 }
-.list-head .col-type {
-  padding-left: 7px; /* same inset as the text inside .badge */
-}
-.list-head .right {
-  text-align: right;
+/* protocol pills and latencies vary in width, so those columns are centred,
+   header included: they line up on the column's centre line */
+.list-head .center,
+.node-type,
+.lat {
+  text-align: center;
 }
 .node {
   flex-shrink: 0;
@@ -423,9 +447,6 @@ const moreItems = computed<MenuItem[]>(() => [
 }
 .node-server {
   font-size: 12px;
-}
-.lat {
-  text-align: right;
 }
 .node-actions {
   display: flex;

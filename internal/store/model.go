@@ -97,6 +97,13 @@ type Settings struct {
 	FindProcess    bool   `json:"findProcess"` // resolve the process of each connection (small overhead)
 }
 
+const (
+	// LocalRuleSetMirror uses the rule-sets bundled in the executable
+	// (geosite-cn, geoip-cn); anything else is fetched from RemoteRuleSetMirror.
+	LocalRuleSetMirror  = "local"
+	RemoteRuleSetMirror = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-{kind}@rule-set/{name}.srs"
+)
+
 func DefaultSettings() Settings {
 	return Settings{
 		Theme:           "auto",
@@ -110,14 +117,14 @@ func DefaultSettings() Settings {
 		TunStrictRoute:  true,
 		TunMTU:          9000,
 		RouteMode:       "rule",
-		RuleSetMirror:   "https://testingcf.jsdelivr.net/gh/SagerNet/sing-{kind}@rule-set/{name}.srs",
+		RuleSetMirror:   LocalRuleSetMirror,
 		RemoteDNS:       "https://1.1.1.1/dns-query",
 		DirectDNS:       "223.5.5.5",
 		Sniff:           true,
 		TestURL:         "https://www.google.com/generate_204",
 		TestTimeout:     5000,
 		TestConcurrency: 16,
-		SubUserAgent:    "NextBox/1.0.0 (sing-box; ClashMeta compatible)",
+		SubUserAgent:    "NextBox/1.0.2 (sing-box; ClashMeta compatible)",
 		LogLevel:        "info",
 		LogFileMaxMB:    10,
 		LogKeepDays:     7,

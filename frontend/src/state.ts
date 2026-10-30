@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import { api, rt, type AppState, type LatencyResult, type Profile, type Settings } from './api'
+import { api, rt, type AppState, type LatencyResult, type LogBatch, type Profile, type Settings } from './api'
 
 export type Page = 'home' | 'nodes' | 'connections' | 'logs' | 'settings'
 
@@ -68,10 +68,24 @@ export function trimLogs() {
 }
 
 export async function init() {
+  // Listen for new log lines before fetching the backlog so none are lost, and
+  // skip the ones the backlog already holds: the startup lines used to arrive
+  // in both and show up twice.
+  let shown = -1
+  const early: LogBatch[] = []
+  const addLogs = (b: LogBatch) => {
+    b.lines.slice(Math.max(0, shown - (b.next - b.lines.length))).forEach(pushLog)
+    shown = Math.max(shown, b.next)
+  }
+  rt.on('logs', (b: LogBatch) => (shown < 0 ? early.push(b) : addLogs(b)))
+
   await refreshState()
   await loadProfiles()
-  state.logs = (await api.getLogs()).map(cleanLog)
+  const backlog = await api.getLogs()
+  state.logs = backlog.lines.map(cleanLog)
+  shown = backlog.next
   trimLogs()
+  early.forEach(addLogs)
 
   let lastGroup = state.app?.currentGroupId
   rt.on('state', async (s: AppState) => {
@@ -92,7 +106,6 @@ export async function init() {
     selectedCache.value = undefined
     await refreshSelected()
   })
-  rt.on('logs', (lines: string[]) => lines.forEach(pushLog))
   rt.on('navigate', (page: Page) => (state.page = page))
   rt.on('traffic', (t: { up: number; down: number }) => {
     state.traffic.up = t.up

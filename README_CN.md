@@ -40,7 +40,7 @@ NextBox 是 [sing-box](https://github.com/SagerNet/sing-box) 代理内核的桌�
 
 ## 下载
 
-在 [Releases](../../releases) 页面下载 `NextBox-v1.0.0-windows-amd64.zip`。
+在 [Releases](../../releases) 页面下载 `NextBox-v1.0.2-windows-amd64.zip`。
 
 **系统要求：** Windows 10 / 11 64 位，需要 Microsoft Edge WebView2 运行时（Windows 11 和已更新的 Windows 10 自带）。
 
@@ -89,8 +89,9 @@ NextBox 生成的是 sing-box **1.12 及以上**格式的配置，所以可以�
 
 **TUN 模式打不开？** 需要管理员权限。在「启动」页或「设置 → TUN 模式」里点「以管理员身份重启」。
 
-**规则分流模式下连接失败，提示“下载规则集失败”？** geosite / geoip 规则集在第一次使用时下载，
-可以在「设置 → 路由规则 → 规则集镜像」里换一个镜像。
+**规则集需要下载吗？** 默认的「本地内置」镜像使用程序自带的规则集（绕过中国域名和中国 IP），无需联网。
+其他规则集（如屏蔽广告、geosite:xxx）在第一次使用时下载；下载失败或超时只会在日志里报错，
+连接照常进行，只是暂时跳过相关规则。可以在「设置 → 路由规则 → 规则集镜像」里换一个镜像后点「更新规则集」。
 
 **导入时有节点被跳过？** 导入提示和日志页会写明原因。XHTTP 传输、VLESS 加密等 Xray 专有功能 sing-box 不支持。
 

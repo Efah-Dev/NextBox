@@ -78,6 +78,9 @@ const quick = [
 ] as const
 const quickValue = (key: (typeof quick)[number]['key']) => !!settings.value?.[key]
 const setQuick = (key: (typeof quick)[number]['key'], v: boolean) => run(() => patchSettings({ [key]: v }))
+// '连 接' only differs from '连接' (the Connections page) to get its own
+// translation; the space is not shown.
+const connectLabel = t('连 接').replace(/\s+/g, '')
 const modeText = computed(() => {
   if (settings.value?.tunEnabled) return t('TUN 模式')
   return settings.value?.systemProxy ? t('系统代理') : t('仅本地端口')
@@ -157,7 +160,7 @@ onUnmounted(() => {
       <div class="spacer" />
 
       <button class="launch" :class="{ on: running }" :disabled="busy" @click="toggle">
-        <span class="launch-main">{{ busy ? t('请稍候') : running ? t('断开连接') : t('连 接') }}</span>
+        <span class="launch-main">{{ busy ? t('请稍候') : running ? t('断开连接') : connectLabel }}</span>
         <span class="launch-sub ellipsis">
           {{ running ? t('{0} · 已运行 {1}', modeText, uptime) : selectedProfile?.name ?? (routeMode === 'direct' ? t('直连模式') : t('请先选择节点')) }}
         </span>
@@ -280,7 +283,7 @@ onUnmounted(() => {
   height: 34px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 0 6px 0 10px;
   border-radius: var(--radius-sm);
   color: var(--text-2);
@@ -291,11 +294,17 @@ onUnmounted(() => {
 }
 .toggle-label {
   flex: 1;
+  min-width: 0;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .admin-link {
+  flex-shrink: 0;
+  white-space: nowrap;
   height: 22px;
-  padding: 0 7px;
+  padding: 0 6px;
   border-radius: 11px;
   border: none;
   background: var(--accent-soft);

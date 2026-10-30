@@ -30,11 +30,12 @@ The full license texts are included in the release package under `licenses/`.
 | Vue 3 (`vue`) | MIT |
 | Other indirect Go modules (see `go.mod` / `go.sum`) | MIT / BSD / Apache-2.0 |
 
-## Data used at runtime (downloaded on demand, not bundled)
+## Rule-set data
 
 | Data | License | Source |
 |---|---|---|
-| geosite / geoip rule-sets | See the upstream repositories | https://github.com/SagerNet/sing-geosite, https://github.com/SagerNet/sing-geoip |
+| `geosite-cn.srs`, `geoip-cn.srs` (embedded in `NextBox.exe`, unmodified) | See the upstream repositories | `rule-set` branches of https://github.com/SagerNet/sing-geosite and https://github.com/SagerNet/sing-geoip |
+| Other geosite / geoip rule-sets (downloaded on demand, not bundled) | See the upstream repositories | same as above |
 
 ## Origin
 
