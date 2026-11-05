@@ -40,7 +40,7 @@ NextBox 是 [sing-box](https://github.com/SagerNet/sing-box) 代理内核的桌�
 
 ## 下载
 
-在 [Releases](../../releases) 页面下载 `NextBox-v1.0.2-windows-amd64.zip`。
+在 [Releases](../../releases) 页面下载 `NextBox-v1.0.3-windows-amd64.zip`。
 
 **系统要求：** Windows 10 / 11 64 位，需要 Microsoft Edge WebView2 运行时（Windows 11 和已更新的 Windows 10 自带）。
 

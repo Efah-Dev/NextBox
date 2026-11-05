@@ -64,6 +64,7 @@ export function serverOf(ob: Record<string, any>): string {
 export interface MenuItem {
   label: string
   icon?: string
+  hint?: string // second, smaller line
   danger?: boolean
   disabled?: boolean
   action: () => void
@@ -121,6 +122,7 @@ export interface DialogState {
   title: string
   message: string
   inputs?: PromptInput[]
+  hint?: string // second, smaller line
   danger?: boolean
   confirmText?: string
   resolve?: (v: string[] | null) => void

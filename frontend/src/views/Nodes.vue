@@ -5,7 +5,7 @@ import Icon from '../components/Icon.vue'
 import Menu from '../components/Menu.vue'
 import NodeEditor from './NodeEditor.vue'
 import { api, rt, type Profile } from '../api'
-import { currentGroup, state } from '../state'
+import { currentGroup, latencyTest, settings, state } from '../state'
 import {
   confirmDialog, formatBytes, groupName, httpWarning, latencyClass, latencyText, promptDialog, run, serverOf, toast, typeName,
   type MenuItem,
@@ -140,10 +140,36 @@ async function deleteUnavailable() {
   }
 }
 
+function openTestSettings() {
+  state.settingsSection = 'test'
+  state.page = 'settings'
+}
+
 const testItems = computed<MenuItem[]>(() => [
-  { label: t('URL 测试'), icon: 'zap', action: () => test('url') },
-  { label: t('TCP 测试'), icon: 'gauge', action: () => test('tcp') },
+  { label: t('URL 测试'), hint: t('经节点访问测速地址，测真实延迟'), icon: 'zap', action: () => test('url') },
+  { label: t('TCP 测试'), hint: t('只测连上服务器的时间，更快但不经过节点'), icon: 'gauge', action: () => test('tcp') },
+  { label: t('测速设置…'), icon: 'settings', action: openTestSettings },
 ])
+
+// ---- progress of the running test ----
+const testPercent = computed(() => (latencyTest.total ? (latencyTest.done / latencyTest.total) * 100 : 0))
+const testNow = computed(() => {
+  const name = state.profiles.find((p) => p.id === latencyTest.current)?.name
+  if (!name) return latencyTest.mode === 'url' && !latencyTest.done ? t('正在启动测速内核…') : ''
+  const n = latencyTest.running.size
+  return n > 1 ? t('正在测试：{0} 等 {1} 个节点', name, n) : t('正在测试：{0}', name)
+})
+const testConfig = computed(() => {
+  const s = settings.value
+  if (!s) return ''
+  const sec = +(s.testTimeout / 1000).toFixed(1)
+  if (latencyTest.mode === 'tcp') return t('直连节点服务器 · 超时 {0} 秒 · 并发 {1}', sec, s.testConcurrency)
+  let host = s.testUrl
+  try {
+    host = new URL(s.testUrl).host
+  } catch {}
+  return t('测速地址 {0} · 超时 {1} 秒 · 并发 {2}', host, sec, s.testConcurrency)
+})
 
 const moreItems = computed<MenuItem[]>(() => [
   { label: t('按延迟排序'), icon: 'sort', action: () => run(() => api.sortGroup(groupId.value, 'latency')) },
@@ -215,6 +241,20 @@ const moreItems = computed<MenuItem[]>(() => [
         <Menu :items="moreItems" />
       </div>
 
+      <div v-if="latencyTest.mode" class="test-bar">
+        <span class="test-ping"><Icon :name="latencyTest.mode === 'tcp' ? 'gauge' : 'zap'" :size="14" /></span>
+        <div class="test-info">
+          <div class="test-line">
+            <b>{{ latencyTest.mode === 'tcp' ? t('TCP 测试') : t('URL 测试') }}</b>
+            <span class="mono test-count">{{ latencyTest.done }} / {{ latencyTest.total }}</span>
+            <span class="ellipsis test-now">{{ testNow }}</span>
+          </div>
+          <div class="faint ellipsis test-config">{{ testConfig }}</div>
+        </div>
+        <button class="btn ghost small icon" :title="t('测速设置…')" @click="openTestSettings"><Icon name="settings" :size="14" /></button>
+        <div class="test-progress"><span :style="{ width: testPercent + '%' }" /></div>
+      </div>
+
       <div v-if="filtered.length" class="list-head-wrap">
         <div class="list-head">
           <span />
@@ -230,7 +270,11 @@ const moreItems = computed<MenuItem[]>(() => [
           v-for="(p, i) in filtered"
           :key="p.id"
           class="node"
-          :class="{ selected: p.id === state.app?.selectedId, running: p.id === state.app?.runningId }"
+          :class="{
+            selected: p.id === state.app?.selectedId,
+            running: p.id === state.app?.runningId,
+            probing: latencyTest.running.has(p.id),
+          }"
           :style="{ '--i': Math.min(i, 12) }"
           @click="select(p)"
           @dblclick="selectAndConnect(p)"
@@ -242,7 +286,9 @@ const moreItems = computed<MenuItem[]>(() => [
           </div>
           <span class="node-type"><span class="badge">{{ typeName(p.type) }}</span></span>
           <span class="faint mono ellipsis node-server">{{ serverOf(p.outbound) }}</span>
-          <span class="lat" :class="latencyClass(p.latency)" :title="p.latencyError">{{ latencyText(p.latency) }}</span>
+          <span v-if="latencyTest.running.has(p.id)" class="lat" :title="t('测速中')"><span class="probe-bars"><i /><i /><i /><i /></span></span>
+          <span v-else-if="latencyTest.waiting.has(p.id)" class="lat lat-none waiting">{{ t('等待中') }}</span>
+          <span v-else class="lat" :class="latencyClass(p.latency)" :title="p.latencyError">{{ latencyText(p.latency) }}</span>
           <div class="node-actions" @click.stop @dblclick.stop>
             <button class="btn ghost small icon" :title="t('编辑')" @click="editProfile(p)"><Icon name="edit" :size="14" /></button>
             <button class="btn ghost small icon" :title="t('复制分享链接')" @click="shareProfile(p)"><Icon name="link" :size="14" /></button>
@@ -458,6 +504,170 @@ const moreItems = computed<MenuItem[]>(() => [
 .node:hover .node-actions {
   opacity: 1;
 }
+/* ---- latency test progress ---- */
+.test-bar {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px 11px 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--accent-line);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  animation: card-in 0.25s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+/* icon with a radar-like ring going out of it */
+.test-ping {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft-2);
+  color: var(--accent);
+}
+.test-ping::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  animation: ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes ping {
+  from {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+.test-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.test-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.test-line b {
+  flex-shrink: 0;
+}
+.test-count {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.test-now {
+  min-width: 0;
+  color: var(--text-2);
+}
+.test-config {
+  font-size: 11px;
+}
+.test-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--accent-soft);
+}
+.test-progress span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #ffffff), var(--accent));
+  background-size: 200% 100%;
+  animation: flow 1.2s linear infinite;
+  transition: width 0.3s ease;
+}
+@keyframes flow {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* a light sweeping across the node being tested */
+.node.probing {
+  overflow: hidden;
+  border-color: var(--accent-line);
+}
+.node.probing::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--accent) 14%, transparent) 50%, transparent 80%);
+  animation: sweep 1.3s ease-in-out infinite;
+}
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+/* signal bars rising one after another */
+.probe-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+  vertical-align: middle;
+}
+.probe-bars i {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transform-origin: bottom;
+  animation: bars 0.9s ease-in-out infinite;
+}
+.probe-bars i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.probe-bars i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.probe-bars i:nth-child(4) {
+  animation-delay: 0.45s;
+}
+@keyframes bars {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+.lat.waiting {
+  font-family: var(--font);
+  font-size: 11px;
+  animation: blink 1.6s ease-in-out infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0.45;
+  }
+}
+
 .spin {
   animation: spin 0.9s linear infinite;
 }

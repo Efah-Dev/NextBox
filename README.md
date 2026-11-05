@@ -43,7 +43,7 @@ with a rewritten launcher-style interface, the current sing-box configuration fo
 
 ## Download
 
-Get `NextBox-v1.0.2-windows-amd64.zip` from the [Releases](../../releases) page.
+Get `NextBox-v1.0.3-windows-amd64.zip` from the [Releases](../../releases) page.
 
 **Requirements:** Windows 10 / 11, 64-bit, with Microsoft Edge WebView2 Runtime (preinstalled on Windows 11
 and on up-to-date Windows 10).

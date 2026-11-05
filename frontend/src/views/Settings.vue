@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { languages, t } from '../i18n'
-import { onMounted, reactive, ref, watch } from 'vue'
+import { nextTick, onMounted, reactive, ref, watch } from 'vue'
 import Card from '../components/Card.vue'
 import Icon from '../components/Icon.vue'
 import Switch from '../components/Switch.vue'
@@ -95,6 +95,15 @@ function jump(id: string) {
   active.value = id
   document.getElementById('sec-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
+
+// Opened from another page for a specific section (e.g. Nodes → 测速设置).
+onMounted(() => {
+  const id = state.settingsSection
+  if (!id) return
+  state.settingsSection = ''
+  active.value = id
+  nextTick(() => document.getElementById('sec-' + id)?.scrollIntoView({ block: 'start' }))
+})
 
 function onScroll() {
   const el = scroller.value

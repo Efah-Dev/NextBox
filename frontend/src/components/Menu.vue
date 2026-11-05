@@ -36,12 +36,16 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
           v-for="(it, i) in items"
           :key="i"
           class="menu-item"
-          :class="{ danger: it.danger }"
+          :class="{ danger: it.danger, 'has-hint': it.hint }"
           :disabled="it.disabled"
           @click="pick(it)"
         >
           <Icon v-if="it.icon" :name="it.icon" :size="15" />
-          <span>{{ it.label }}</span>
+          <span v-if="it.hint" class="menu-text">
+            <span>{{ it.label }}</span>
+            <span class="menu-hint">{{ it.hint }}</span>
+          </span>
+          <span v-else>{{ it.label }}</span>
         </button>
       </div>
     </Transition>
@@ -83,6 +87,24 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
 .menu-item:hover {
   background: var(--accent-soft);
   color: var(--accent);
+}
+.menu-item.has-hint {
+  height: auto;
+  padding: 7px 10px;
+  align-items: flex-start;
+}
+.menu-item.has-hint svg {
+  margin-top: 2px;
+}
+.menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.menu-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
 }
 .menu-item.danger:hover {
   background: color-mix(in srgb, var(--bad) 10%, var(--card));

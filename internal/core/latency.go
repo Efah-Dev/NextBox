@@ -24,28 +24,35 @@ type LatencyResult struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// Progress receives the events of a latency test: Start when a node's
+// measurement begins, Result when it ends.
+type Progress struct {
+	Start  func(id int64)
+	Result func(LatencyResult)
+}
+
 // TestURL measures real latency (HTTP request through the proxy) for nodes
 // using a temporary sing-box instance. If the instance refuses to start
 // because one node config is invalid, the batch is split in half until the
 // broken nodes are isolated.
-func TestURL(ctx context.Context, bin, workDir string, s store.Settings, nodes []store.Profile, onResult func(LatencyResult)) {
+func TestURL(ctx context.Context, bin, workDir string, s store.Settings, nodes []store.Profile, p Progress) {
 	if len(nodes) == 0 || ctx.Err() != nil {
 		return
 	}
-	err := testBatch(ctx, bin, workDir, s, nodes, onResult)
+	err := testBatch(ctx, bin, workDir, s, nodes, p)
 	if err == nil || ctx.Err() != nil {
 		return
 	}
 	if len(nodes) == 1 {
-		onResult(LatencyResult{ID: nodes[0].ID, Latency: -1, Error: firstLine(err.Error())})
+		p.Result(LatencyResult{ID: nodes[0].ID, Latency: -1, Error: firstLine(err.Error())})
 		return
 	}
 	mid := len(nodes) / 2
-	TestURL(ctx, bin, workDir, s, nodes[:mid], onResult)
-	TestURL(ctx, bin, workDir, s, nodes[mid:], onResult)
+	TestURL(ctx, bin, workDir, s, nodes[:mid], p)
+	TestURL(ctx, bin, workDir, s, nodes[mid:], p)
 }
 
-func testBatch(ctx context.Context, bin, workDir string, s store.Settings, nodes []store.Profile, onResult func(LatencyResult)) error {
+func testBatch(ctx context.Context, bin, workDir string, s store.Settings, nodes []store.Profile, prog Progress) error {
 	apiPort, err := FreePort()
 	if err != nil {
 		return err
@@ -76,13 +83,14 @@ func testBatch(ctx context.Context, bin, workDir string, s store.Settings, nodes
 		wg.Add(1)
 		go func(n store.Profile) {
 			defer func() { <-sem; wg.Done() }()
+			prog.Start(n.ID)
 			proxy := &url.URL{Scheme: "http", User: url.UserPassword(config.TestUser(n.ID), api.Secret), Host: proxyAddr}
 			ms, err := measureRTT(ctx, proxy, s.TestURL, time.Duration(s.TestTimeout)*time.Millisecond)
 			r := LatencyResult{ID: n.ID, Latency: ms}
 			if err != nil {
 				r.Latency, r.Error = -1, err.Error()
 			}
-			onResult(r)
+			prog.Result(r)
 		}(n)
 	}
 	wg.Wait()
@@ -142,7 +150,7 @@ func simplifyErr(err error) error {
 }
 
 // TCPPing measures the TCP handshake time to the node server, without a core.
-func TCPPing(ctx context.Context, s store.Settings, nodes []store.Profile, onResult func(LatencyResult)) {
+func TCPPing(ctx context.Context, s store.Settings, nodes []store.Profile, p Progress) {
 	sem := make(chan struct{}, max(1, s.TestConcurrency))
 	var wg sync.WaitGroup
 	for _, n := range nodes {
@@ -153,15 +161,16 @@ func TCPPing(ctx context.Context, s store.Settings, nodes []store.Profile, onRes
 		wg.Add(1)
 		go func(n store.Profile) {
 			defer func() { <-sem; wg.Done() }()
+			p.Start(n.ID)
 			d := net.Dialer{Timeout: time.Duration(s.TestTimeout) * time.Millisecond}
 			start := time.Now()
 			conn, err := d.DialContext(ctx, "tcp", n.Server())
 			if err != nil {
-				onResult(LatencyResult{ID: n.ID, Latency: -1, Error: err.Error()})
+				p.Result(LatencyResult{ID: n.ID, Latency: -1, Error: err.Error()})
 				return
 			}
 			conn.Close()
-			onResult(LatencyResult{ID: n.ID, Latency: max(1, int(time.Since(start).Milliseconds()))})
+			p.Result(LatencyResult{ID: n.ID, Latency: max(1, int(time.Since(start).Milliseconds()))})
 		}(n)
 	}
 	wg.Wait()

@@ -63,11 +63,22 @@ func TestURLMeasuresThroughNode(t *testing.T) {
 
 	var mu sync.Mutex
 	results := map[int64]LatencyResult{}
-	TestURL(context.Background(), bin, t.TempDir(), s, nodes, func(r LatencyResult) {
-		mu.Lock()
-		results[r.ID] = r
-		mu.Unlock()
+	started := map[int64]bool{}
+	TestURL(context.Background(), bin, t.TempDir(), s, nodes, Progress{
+		Start: func(id int64) {
+			mu.Lock()
+			started[id] = true
+			mu.Unlock()
+		},
+		Result: func(r LatencyResult) {
+			mu.Lock()
+			results[r.ID] = r
+			mu.Unlock()
+		},
 	})
+	if !started[1] || !started[2] {
+		t.Fatalf("start events missing: %v", started)
+	}
 
 	if r := results[1]; r.Latency <= 0 {
 		t.Fatalf("working node: got %+v", r)

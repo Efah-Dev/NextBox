@@ -677,8 +677,15 @@ func (a *App) SelectProfile(id int64) error {
 
 // ---------------------------------------------------------------- latency
 
-// TestLatency tests nodes in the background; results arrive as "latency"
-// events, followed by "latency-done". mode is "url" or "tcp".
+// TestBegin announces a latency test, so the UI can show its progress.
+type TestBegin struct {
+	IDs  []int64 `json:"ids"`
+	Mode string  `json:"mode"`
+}
+
+// TestLatency tests nodes in the background. It emits "latency-begin", then
+// "latency-start" (node id) when a node's measurement begins and "latency"
+// with its result, and finally "latency-done". mode is "url" or "tcp".
 func (a *App) TestLatency(ids []int64, mode string) error {
 	nodes := a.store.ProfilesByIDs(ids)
 	if len(nodes) == 0 {
@@ -692,6 +699,11 @@ func (a *App) TestLatency(ids []int64, mode string) error {
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.testCancel = cancel
 	a.mu.Unlock()
+	begin := TestBegin{Mode: mode}
+	for _, n := range nodes {
+		begin.IDs = append(begin.IDs, n.ID)
+	}
+	wruntime.EventsEmit(a.ctx, "latency-begin", begin)
 	a.emitState()
 
 	s := a.store.Settings()
@@ -705,14 +717,17 @@ func (a *App) TestLatency(ids []int64, mode string) error {
 			wruntime.EventsEmit(a.ctx, "latency-done")
 			a.emitState()
 		}()
-		onResult := func(r core.LatencyResult) {
-			a.store.SetLatency(r.ID, r.Latency, r.Error, time.Now().Unix())
-			wruntime.EventsEmit(a.ctx, "latency", r)
+		progress := core.Progress{
+			Start: func(id int64) { wruntime.EventsEmit(a.ctx, "latency-start", id) },
+			Result: func(r core.LatencyResult) {
+				a.store.SetLatency(r.ID, r.Latency, r.Error, time.Now().Unix())
+				wruntime.EventsEmit(a.ctx, "latency", r)
+			},
 		}
 		if mode == "tcp" {
-			core.TCPPing(ctx, s, nodes, onResult)
+			core.TCPPing(ctx, s, nodes, progress)
 		} else {
-			core.TestURL(ctx, a.corePath(), a.testDir(), s, nodes, onResult)
+			core.TestURL(ctx, a.corePath(), a.testDir(), s, nodes, progress)
 		}
 	}()
 	return nil

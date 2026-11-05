@@ -9,6 +9,19 @@ export const state = reactive({
   profiles: [] as Profile[],
   traffic: { up: 0, down: 0, history: [] as { up: number; down: number }[] },
   logs: [] as string[],
+  /** Settings section to scroll to when the settings page opens. */
+  settingsSection: '',
+})
+
+/** Progress of the running latency test (mode '' = none). */
+export const latencyTest = reactive({
+  mode: '' as '' | 'url' | 'tcp',
+  total: 0,
+  done: 0,
+  waiting: new Set<number>(),
+  running: new Set<number>(),
+  /** The node that started most recently, named in the progress bar. */
+  current: 0,
 })
 
 export const settings = computed(() => state.app?.settings)
@@ -113,11 +126,30 @@ export async function init() {
     state.traffic.history.push({ up: t.up, down: t.down })
     if (state.traffic.history.length > 60) state.traffic.history.shift()
   })
+  rt.on('latency-begin', (b: { ids: number[]; mode: 'url' | 'tcp' }) => {
+    Object.assign(latencyTest, { mode: b.mode, total: b.ids.length, done: 0, current: 0 })
+    latencyTest.waiting = new Set(b.ids)
+    latencyTest.running = new Set()
+  })
+  rt.on('latency-start', (id: number) => {
+    latencyTest.waiting.delete(id)
+    latencyTest.running.add(id)
+    latencyTest.current = id
+  })
   rt.on('latency', (r: LatencyResult) => {
+    latencyTest.waiting.delete(r.id)
+    latencyTest.running.delete(r.id)
+    latencyTest.done = Math.min(latencyTest.total, latencyTest.done + 1)
+    if (latencyTest.current === r.id) latencyTest.current = [...latencyTest.running].pop() ?? 0
     const p = state.profiles.find((x) => x.id === r.id)
     if (p) {
       p.latency = r.latency
       p.latencyError = r.error
     }
+  })
+  rt.on('latency-done', () => {
+    latencyTest.mode = ''
+    latencyTest.waiting = new Set()
+    latencyTest.running = new Set()
   })
 }

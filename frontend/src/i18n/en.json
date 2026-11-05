@@ -382,5 +382,15 @@
   "默认分组": "Default group",
   "）是 Xray 专有功能，sing-box 内核不支持": ") is an Xray-only feature that sing-box does not support",
   "，跳过 %d 条（%s）": ", %d skipped (%s)",
-  "：不支持的出站类型 ": ": unsupported outbound type "
+  "：不支持的出站类型 ": ": unsupported outbound type ",
+  "经节点访问测速地址，测真实延迟": "Fetches the test URL through the node: real latency",
+  "只测连上服务器的时间，更快但不经过节点": "Only times the connection to the server: faster, not through the node",
+  "测速设置…": "Test settings…",
+  "正在启动测速内核…": "Starting the test core…",
+  "正在测试：{0} 等 {1} 个节点": "Testing {0} and others ({1} nodes)",
+  "正在测试：{0}": "Testing {0}",
+  "直连节点服务器 · 超时 {0} 秒 · 并发 {1}": "Direct to the node servers · timeout {0} s · {1} at a time",
+  "测速地址 {0} · 超时 {1} 秒 · 并发 {2}": "Test URL {0} · timeout {1} s · {2} at a time",
+  "测速中": "Testing",
+  "等待中": "Waiting"
 }
