@@ -64,8 +64,7 @@ and on up-to-date Windows 10).
    choose *More info → Run anyway*.
 
 > Switching nodes without dropping connections, automatic subscription updates, the update check and the
-> system proxy for dial-up connections were added after v1.0.3 and will be part of the next release;
-> until then you can build from source as described below.
+> system proxy for dial-up connections are available from v1.1.0 on.
 
 ## 🚀 Quick start
 

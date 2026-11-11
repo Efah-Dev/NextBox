@@ -127,7 +127,7 @@ func DefaultSettings() Settings {
 		TestURL:         "https://www.google.com/generate_204",
 		TestTimeout:     5000,
 		TestConcurrency: 16,
-		SubUserAgent:    "NextBox/1.0.3 (sing-box; ClashMeta compatible)",
+		SubUserAgent:    "NextBox/1.1.0 (sing-box; ClashMeta compatible)",
 		SubUpdateHours:  12,
 		LogLevel:        "info",
 		LogFileMaxMB:    10,
