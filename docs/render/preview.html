@@ -1,0 +1,94 @@
+<!doctype html>
+<!--
+  Source of docs/preview.png and docs/preview-en.png (the README hero image).
+  The two windows are the real frontend (frontend/dist) running on mock.js, so
+  this page only works when served by render.mjs:
+
+    node docs/render/render.mjs
+
+  Add ?lang=en for the English version. All data shown is made up.
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>NextBox preview</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1800px; height: 1040px; overflow: hidden; }
+  body {
+    font-family: "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+    background:
+      radial-gradient(900px 700px at 74% 34%, rgba(244,114,182,.30), transparent 65%),
+      radial-gradient(800px 700px at 100% 100%, rgba(124,155,255,.30), transparent 60%),
+      radial-gradient(700px 600px at 0% 0%, rgba(255,196,107,.20), transparent 60%),
+      linear-gradient(135deg, #fdf5fa 0%, #f3f0fb 55%, #eaf0ff 100%);
+    color: #1d2a3b;
+    position: relative;
+  }
+  .copy { position: absolute; left: 96px; top: 208px; width: 580px; }
+  .brand { display: flex; align-items: center; gap: 20px; margin-bottom: 34px; }
+  .brand .mark { width: 84px; height: 84px; border-radius: 26px; background: #fff; display: grid; place-items: center;
+    box-shadow: 0 14px 40px rgba(244,114,182,.35), inset 0 0 0 1px rgba(19,60,130,.06); }
+  .brand span { font-size: 30px; font-weight: 700; letter-spacing: .2px; color: #5b6678; }
+  h1 { font-size: 84px; line-height: 1.06; font-weight: 800; letter-spacing: -1.5px; }
+  h1 em { font-style: normal; background: linear-gradient(90deg, #f472b6, #8b8cf8); -webkit-background-clip: text; color: transparent; }
+  .tag { margin-top: 26px; font-size: 29px; line-height: 1.5; color: #5b6678; }
+  .chips { margin-top: 44px; display: flex; flex-wrap: wrap; gap: 14px; }
+  .chip { padding: 12px 22px; border-radius: 999px; font-size: 21px; font-weight: 600; color: #8a3f66;
+    background: rgba(255,255,255,.62); border: 1px solid rgba(255,255,255,.9);
+    box-shadow: 0 6px 20px rgba(120,90,160,.10); backdrop-filter: blur(12px); }
+
+  /* an app window: the iframe keeps the real window size and is scaled down */
+  .win { position: absolute; width: 1000px; height: 640px; transform-origin: top left; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 50px 110px rgba(60,40,100,.30), 0 16px 36px rgba(60,40,100,.18), 0 0 0 1px rgba(19,60,130,.10); }
+  .win iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .w1 { left: 728px; top: 76px; }
+  .w2 { left: 1004px; top: 500px; transform: scale(.76); z-index: 2;
+    box-shadow: 0 60px 120px rgba(20,16,50,.45), 0 18px 40px rgba(20,16,50,.30), 0 0 0 1px rgba(255,255,255,.10); }
+</style>
+</head>
+<body>
+  <div class="copy">
+    <div class="brand">
+      <div class="mark">
+        <svg width="54" height="54" viewBox="0 0 100 100">
+          <defs>
+            <linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFA3C8"/><stop offset="1" stop-color="#FF5C9A"/></linearGradient>
+          </defs>
+          <g fill="url(#g)" transform="translate(50 50) scale(0.94) rotate(45) translate(-50 -50)">
+            <circle cx="50" cy="70" r="19"/><circle cx="38.5" cy="64" r="14.5"/><circle cx="61.5" cy="64" r="14.5"/>
+            <ellipse cx="50" cy="67.5" rx="25" ry="17"/>
+            <ellipse cx="20" cy="40.5" rx="8.5" ry="11.5" transform="rotate(-28 20 40.5)"/>
+            <ellipse cx="37.5" cy="23" rx="9.2" ry="12.5" transform="rotate(-10 37.5 23)"/>
+            <ellipse cx="62.5" cy="23" rx="9.2" ry="12.5" transform="rotate(10 62.5 23)"/>
+            <ellipse cx="80" cy="40.5" rx="8.5" ry="11.5" transform="rotate(28 80 40.5)"/>
+          </g>
+        </svg>
+      </div>
+      <span>NextBox</span>
+    </div>
+    <h1>NextBox<br><em>for Windows</em></h1>
+    <p class="tag" data-en="A clean, modern Windows proxy client&lt;br&gt;powered by sing-box">基于 sing-box 内核的简洁、现代的<br>Windows 代理客户端</p>
+    <div class="chips">
+      <span class="chip" data-en="Switch nodes without dropping">切换节点不断流</span>
+      <span class="chip" data-en="System proxy · TUN">系统代理 · TUN</span>
+      <span class="chip" data-en="Rule-based routing">规则分流</span>
+      <span class="chip" data-en="Auto-updating subscriptions">订阅自动更新</span>
+      <span class="chip" data-en="Tray quick actions">托盘快捷操作</span>
+      <span class="chip" data-en="Light &amp; dark themes">浅色 / 深色主题</span>
+    </div>
+  </div>
+
+  <div class="win w1"><iframe data-src="/?theme=light&page=home"></iframe></div>
+  <div class="win w2"><iframe data-src="/?theme=dark&page=nodes"></iframe></div>
+
+<script>
+  const en = new URLSearchParams(location.search).get('lang') === 'en'
+  if (en) {
+    document.documentElement.lang = 'en'
+    document.querySelectorAll('[data-en]').forEach((el) => (el.innerHTML = el.dataset.en))
+  }
+  document.querySelectorAll('iframe').forEach((f) => (f.src = f.dataset.src + (en ? '&lang=en' : '')))
+</script>
+</body>
+</html>

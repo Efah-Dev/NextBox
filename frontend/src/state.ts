@@ -1,5 +1,7 @@
 import { computed, reactive, ref } from 'vue'
-import { api, rt, type AppState, type LatencyResult, type LogBatch, type Profile, type Settings } from './api'
+import { api, rt, type AppState, type LatencyResult, type LogBatch, type Profile, type Settings, type UpdateInfo } from './api'
+import { t } from './i18n'
+import { toast } from './util'
 
 export type Page = 'home' | 'nodes' | 'connections' | 'logs' | 'settings'
 
@@ -11,6 +13,8 @@ export const state = reactive({
   logs: [] as string[],
   /** Settings section to scroll to when the settings page opens. */
   settingsSection: '',
+  /** Result of the last update check (设置 → 关于). */
+  update: null as UpdateInfo | null,
 })
 
 /** Progress of the running latency test (mode '' = none). */
@@ -120,6 +124,12 @@ export async function init() {
     await refreshSelected()
   })
   rt.on('navigate', (page: Page) => (state.page = page))
+  // automatic update check (off by default): only reported when there is news
+  rt.on('update', (u: UpdateInfo) => {
+    state.update = u
+    const name = u.app.hasUpdate ? `NextBox ${u.app.latest}` : `sing-box ${u.core.latest}`
+    toast(t('发现新版本 {0}，详见「设置 → 关于」', name))
+  })
   rt.on('traffic', (t: { up: number; down: number }) => {
     state.traffic.up = t.up
     state.traffic.down = t.down

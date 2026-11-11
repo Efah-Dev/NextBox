@@ -75,7 +75,7 @@ func parseUserInfo(h string) *store.SubscriptionInfo {
 			continue
 		}
 		n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
-		switch strings.ToLower(k) {
+		switch strings.ToLower(strings.TrimSpace(k)) {
 		case "upload":
 			info.Upload = n
 		case "download":

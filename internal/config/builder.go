@@ -24,9 +24,12 @@ const (
 )
 
 type Input struct {
-	Settings   store.Settings
-	Node       *store.Profile // may be nil in direct mode
-	ClashAPI   string         // "127.0.0.1:port"
+	Settings store.Settings
+	Node     *store.Profile // the selected node; may be nil in direct mode
+	// Nodes are loaded next to Node so that the selection can be changed
+	// through the clash API without restarting the core (see NodeTags).
+	Nodes      []store.Profile
+	ClashAPI   string // "127.0.0.1:port"
 	Secret     string
 	RuleSetDir string
 	// SkipMissingRuleSets leaves out the rules that need a rule-set file which
@@ -53,12 +56,28 @@ func Build(in Input) (map[string]any, error) {
 	outbounds := []any{}
 	hasProxy := in.Node != nil
 	if hasProxy {
-		ob := map[string]any{}
-		for k, v := range in.Node.Outbound {
-			ob[k] = v
+		// "proxy" is a selector over the loaded nodes: rules and DNS refer to
+		// it, and switching nodes only changes what it points at.
+		nodes := in.Switchable()
+		tags := NodeTags(nodes)
+		names := make([]string, 0, len(nodes))
+		for _, n := range nodes {
+			names = append(names, tags[n.ID])
 		}
-		ob["tag"] = TagProxy
-		outbounds = append(outbounds, ob)
+		outbounds = append(outbounds, map[string]any{
+			"type":      "selector",
+			"tag":       TagProxy,
+			"outbounds": names,
+			"default":   tags[in.Node.ID],
+		})
+		for _, n := range nodes {
+			ob := map[string]any{}
+			for k, v := range n.Outbound {
+				ob[k] = v
+			}
+			ob["tag"] = tags[n.ID]
+			outbounds = append(outbounds, ob)
+		}
 	}
 	outbounds = append(outbounds, map[string]any{"type": "direct", "tag": TagDirect})
 
@@ -202,6 +221,39 @@ func Build(in Input) (map[string]any, error) {
 		},
 	}
 	return cfg, nil
+}
+
+// Switchable returns the nodes the config is built with: the selected node
+// first, then the others without duplicates.
+func (in Input) Switchable() []store.Profile {
+	if in.Node == nil {
+		return nil
+	}
+	nodes := []store.Profile{*in.Node}
+	seen := map[int64]bool{in.Node.ID: true}
+	for _, n := range in.Nodes {
+		if !seen[n.ID] {
+			seen[n.ID] = true
+			nodes = append(nodes, n)
+		}
+	}
+	return nodes
+}
+
+// NodeTags gives every node a unique outbound tag. The node name is used
+// where possible, because the tag is what the connection list shows.
+func NodeTags(nodes []store.Profile) map[int64]string {
+	used := map[string]bool{TagProxy: true, TagDirect: true}
+	tags := make(map[int64]string, len(nodes))
+	for _, n := range nodes {
+		tag := strings.TrimSpace(n.Name)
+		for tag == "" || used[tag] {
+			tag = strings.TrimSpace(tag + " #" + strconv.FormatInt(n.ID, 10))
+		}
+		used[tag] = true
+		tags[n.ID] = tag
+	}
+	return tags
 }
 
 // BuildTest generates a config for latency tests: one outbound per node and a

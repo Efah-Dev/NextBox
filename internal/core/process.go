@@ -131,15 +131,26 @@ func (p *Process) ExitErr() error {
 	}
 }
 
+// Stop shuts the core down. It first asks it to exit by itself, so that
+// sing-box can remove the TUN routes and close its cache file, and kills it
+// when that is not possible or takes too long.
 func (p *Process) Stop() {
 	select {
 	case <-p.done:
 		return
 	default:
 	}
-	if p.cmd.Process != nil {
-		p.cmd.Process.Kill()
+	if p.cmd.Process == nil {
+		return
 	}
+	if sys.Interrupt(p.cmd.Process.Pid) == nil {
+		select {
+		case <-p.done:
+			return
+		case <-time.After(3 * time.Second):
+		}
+	}
+	p.cmd.Process.Kill()
 	select {
 	case <-p.done:
 	case <-time.After(5 * time.Second):

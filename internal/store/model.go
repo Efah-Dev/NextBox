@@ -85,6 +85,9 @@ type Settings struct {
 
 	SubUserAgent     string `json:"subUserAgent"`
 	SubUpdateByProxy bool   `json:"subUpdateByProxy"`
+	SubAutoUpdate    bool   `json:"subAutoUpdate"`  // refresh subscriptions in the background
+	SubUpdateHours   int    `json:"subUpdateHours"` // ... once they are older than this
+	AutoCheckUpdate  bool   `json:"autoCheckUpdate"`
 
 	LogLevel       string `json:"logLevel"`
 	LogToFile      bool   `json:"logToFile"`    // also write the log to config/logs
@@ -125,6 +128,7 @@ func DefaultSettings() Settings {
 		TestTimeout:     5000,
 		TestConcurrency: 16,
 		SubUserAgent:    "NextBox/1.0.3 (sing-box; ClashMeta compatible)",
+		SubUpdateHours:  12,
 		LogLevel:        "info",
 		LogFileMaxMB:    10,
 		LogKeepDays:     7,
@@ -179,6 +183,9 @@ func (s *Settings) fillDefaults() {
 	}
 	if s.SubUserAgent == "" {
 		s.SubUserAgent = d.SubUserAgent
+	}
+	if s.SubUpdateHours <= 0 {
+		s.SubUpdateHours = d.SubUpdateHours
 	}
 	if s.LogLevel == "" {
 		s.LogLevel = d.LogLevel

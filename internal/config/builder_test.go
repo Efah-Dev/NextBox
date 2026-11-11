@@ -94,6 +94,38 @@ func TestMainConfigAccepted(t *testing.T) {
 	}
 }
 
+// A whole group is loaded behind the "proxy" selector, so that the node can be
+// switched without restarting the core.
+func TestGroupConfigAccepted(t *testing.T) {
+	bin := singBox(t)
+	profiles := sampleProfiles(t)
+	// same name twice, an empty name and a name that is a reserved tag
+	profiles[1].Name, profiles[2].Name, profiles[3].Name = profiles[0].Name, "", TagProxy
+	s := store.DefaultSettings()
+	s.RouteMode = "global"
+	in := Input{Settings: s, Node: &profiles[2], Nodes: profiles, ClashAPI: "127.0.0.1:9090", Secret: "x", RuleSetDir: t.TempDir()}
+	cfg, err := Build(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := in.Switchable()
+	if len(nodes) != len(profiles) || nodes[0].ID != profiles[2].ID {
+		t.Fatalf("switchable nodes: got %d, first %d", len(nodes), nodes[0].ID)
+	}
+	seen := map[string]bool{TagProxy: true, TagDirect: true}
+	for id, tag := range NodeTags(nodes) {
+		if tag == "" || seen[tag] {
+			t.Fatalf("node %d has the unusable tag %q", id, tag)
+		}
+		seen[tag] = true
+	}
+	selector := cfg["outbounds"].([]any)[0].(map[string]any)
+	if selector["type"] != "selector" || selector["default"] != NodeTags(nodes)[profiles[2].ID] {
+		t.Fatalf("unexpected selector: %v", selector)
+	}
+	check(t, bin, cfg)
+}
+
 // A rule-set that could not be fetched must not stop the core from starting:
 // only the rules that need it are left out.
 func TestSkipMissingRuleSets(t *testing.T) {

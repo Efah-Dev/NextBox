@@ -1,0 +1,64 @@
+# Tests and builds NextBox on GitHub's runners for every push and pull request.
+# The result is NextBox.exe without the sing-box core: release packages (with
+# the core built from source by scripts/build-core.ps1) are made locally.
+#
+# The tests that need the core (config check, latency, node switching) skip
+# themselves here, as the core is not built.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        env:
+          # the system proxy round trip is safe on a throwaway runner
+          NEXTBOX_TEST_SYSPROXY: "1"
+        run: go test ./...
+
+      - name: Build NextBox.exe
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
+          wails build -s -clean
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NextBox-windows-amd64
+          path: build/bin/NextBox.exe
+          if-no-files-found: error

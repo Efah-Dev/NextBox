@@ -29,6 +29,9 @@ export interface Settings {
   testConcurrency: number
   subUserAgent: string
   subUpdateByProxy: boolean
+  subAutoUpdate: boolean
+  subUpdateHours: number
+  autoCheckUpdate: boolean
   logLevel: string
   logToFile: boolean
   logFileMaxMb: number
@@ -125,6 +128,19 @@ export interface CoreInfo {
   cgo: string
 }
 
+/** An installed version next to the latest release (latest is '' when unknown). */
+export interface UpdateItem {
+  current: string
+  latest: string
+  url: string
+  hasUpdate: boolean
+}
+
+export interface UpdateInfo {
+  app: UpdateItem
+  core: UpdateItem
+}
+
 /** Consecutive log lines; next = lines logged so far, up to the last one. */
 export interface LogBatch {
   lines: string[]
@@ -182,6 +198,7 @@ export const api = {
   clearLogFiles: () => call<number>('ClearLogFiles'),
   openLogDir: () => call<void>('OpenLogDir'),
   getCoreInfo: () => call<CoreInfo>('GetCoreInfo'),
+  checkUpdate: () => call<UpdateInfo>('CheckUpdate'),
 
   updateRuleSets: () => call<string>('UpdateRuleSets'),
   restartAsAdmin: () => call<void>('RestartAsAdmin'),

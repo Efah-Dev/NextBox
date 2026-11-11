@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { languages, t } from '../i18n'
-import { nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import Card from '../components/Card.vue'
 import Icon from '../components/Icon.vue'
 import Switch from '../components/Switch.vue'
@@ -77,6 +77,34 @@ const keepOptions = [
   { value: 30, label: t('30 天') },
   { value: 0, label: t('永久保留') },
 ]
+
+const updateHours = [
+  { value: 1, label: t('每 {0} 小时', 1) },
+  { value: 6, label: t('每 {0} 小时', 6) },
+  { value: 12, label: t('每 {0} 小时', 12) },
+  { value: 24, label: t('每天') },
+  { value: 72, label: t('每 {0} 天', 3) },
+  { value: 168, label: t('每 {0} 天', 7) },
+]
+
+const checking = ref(false)
+async function checkUpdate() {
+  checking.value = true
+  try {
+    state.update = await api.checkUpdate()
+  } catch (e) {
+    toast((e as Error).message, 'error')
+  } finally {
+    checking.value = false
+  }
+}
+// the core row is left out when no core is installed
+const updateRows = computed(() =>
+  [
+    { name: 'NextBox', item: state.update!.app },
+    { name: 'sing-box', item: state.update!.core },
+  ].filter((u) => u.item.current),
+)
 
 const core = ref<CoreInfo>()
 onMounted(async () => (core.value = await api.getCoreInfo().catch(() => undefined)))
@@ -344,6 +372,15 @@ function onScroll() {
           <div class="label">{{ t('通过代理更新订阅') }}<span class="hint">{{ t('仅在已连接时生效') }}</span></div>
           <div class="control"><Switch v-model="form.subUpdateByProxy" /></div>
         </div>
+        <div class="form-row">
+          <div class="label">{{ t('自动更新订阅') }}<span class="hint">{{ t('NextBox 运行期间在后台更新') }}</span></div>
+          <div class="control">
+            <select v-if="form.subAutoUpdate" v-model.number="form.subUpdateHours" class="select" style="width: 160px">
+              <option v-for="h in updateHours" :key="h.value" :value="h.value">{{ h.label }}</option>
+            </select>
+            <Switch v-model="form.subAutoUpdate" />
+          </div>
+        </div>
       </Card>
 
       <Card id="sec-logs" :title="t('日志')" :index="7">
@@ -417,6 +454,30 @@ function onScroll() {
             </div>
           </template>
           <div v-else class="faint">{{ t('未找到内核：{0}', state.app?.corePath) }}</div>
+        </div>
+        <div class="form-row">
+          <div class="label">{{ t('检查更新') }}<span class="hint">{{ t('与 GitHub 上的最新版本比对，不会自动下载') }}</span></div>
+          <div class="control">
+            <button class="btn small" :disabled="checking" @click="checkUpdate">
+              <Icon name="refresh" :size="13" /> {{ checking ? t('正在检查…') : t('检查更新') }}
+            </button>
+          </div>
+        </div>
+        <div v-if="state.update" class="updates">
+          <div v-for="u in updateRows" :key="u.name">
+            <template v-if="u.item.hasUpdate">
+              <span class="badge new">{{ t('有新版本') }}</span>
+              {{ u.name }} <b>{{ u.item.latest }}</b>
+              <span class="faint">{{ t('（当前 {0}）', u.item.current) }}</span>
+              <a @click="api.openURL(u.item.url)">{{ t('查看发布页') }}</a>
+            </template>
+            <span v-else-if="u.item.latest" class="faint">{{ t('{0} 已是最新版本（{1}）', u.name, u.item.current) }}</span>
+            <span v-else class="faint">{{ t('{0}：未能获取最新版本', u.name) }}</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="label">{{ t('自动检查更新') }}<span class="hint">{{ t('启动后检查一次，有新版本时提醒') }}</span></div>
+          <div class="control"><Switch v-model="form.autoCheckUpdate" /></div>
         </div>
         <div class="credits">
           <div>{{ t('项目地址：') }}<a @click="api.openURL('https://github.com/Efah-Dev/NextBox')">Efah-Dev/NextBox</a></div>
@@ -538,6 +599,26 @@ function onScroll() {
   color: var(--text-2);
   word-break: break-word;
   user-select: text;
+}
+.updates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 10px;
+  line-height: 1.6;
+}
+.updates a {
+  margin-left: 8px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.updates a:hover {
+  text-decoration: underline;
+}
+.updates .badge.new {
+  margin-right: 6px;
+  background: color-mix(in srgb, var(--good) 14%, var(--card));
+  color: var(--good);
 }
 .credits {
   margin-top: 14px;

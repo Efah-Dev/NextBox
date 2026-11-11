@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,9 +27,16 @@ func NewAPI(addr, secret string) *API {
 }
 
 func (a *API) request(ctx context.Context, method, path string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, method, "http://"+a.Addr+path, nil)
+	return a.send(ctx, method, path, nil)
+}
+
+func (a *API) send(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, "http://"+a.Addr+path, body)
 	if err != nil {
 		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	if a.Secret != "" {
 		req.Header.Set("Authorization", "Bearer "+a.Secret)
@@ -64,6 +72,37 @@ func (a *API) Ping(ctx context.Context) error {
 	defer cancel()
 	var v map[string]any
 	return a.getJSON(ctx, "/version", &v)
+}
+
+// SelectProxy makes the selector outbound `group` use the outbound `name`.
+// Connections that are already open stay on the outbound they started with.
+func (a *API) SelectProxy(ctx context.Context, group, name string) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	body, err := json.Marshal(map[string]string{"name": name})
+	if err != nil {
+		return err
+	}
+	resp, err := a.send(ctx, http.MethodPut, "/proxies/"+url.PathEscape(group), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return apiError(resp)
+	}
+	return nil
+}
+
+// SelectedProxy returns the outbound the selector `group` currently uses.
+func (a *API) SelectedProxy(ctx context.Context, group string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	var v struct {
+		Now string `json:"now"`
+	}
+	err := a.getJSON(ctx, "/proxies/"+url.PathEscape(group), &v)
+	return v.Now, err
 }
 
 // Delay runs a URL test through the outbound with the given tag.

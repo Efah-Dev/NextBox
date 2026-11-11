@@ -34,6 +34,15 @@ func WaitPid(pid int) {
 	}
 }
 
+// Interrupt asks a child process to shut down by itself.
+func Interrupt(pid int) error {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return p.Signal(os.Interrupt)
+}
+
 func PrepareCmd(cmd *exec.Cmd) {}
 func AttachCmd(cmd *exec.Cmd)  {}
 func CoreBinaryName() string   { return "sing-box" }
