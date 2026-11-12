@@ -131,7 +131,7 @@ func TestReplaceGroupProfiles(t *testing.T) {
 	s.AddTraffic(old[0].ID, 5, 7)
 	s.SetSelected(old[0].ID)
 
-	if err := s.ReplaceGroupProfiles(g.ID, []Profile{node("new"), node("keep")}); err != nil {
+	if err := s.ReplaceGroupProfiles(g.ID, []Profile{node("new"), node("keep")}, false); err != nil {
 		t.Fatal(err)
 	}
 	list := s.Profiles(g.ID)
@@ -150,7 +150,7 @@ func TestReplaceGroupProfiles(t *testing.T) {
 	}
 
 	// the selection is cleared when the selected node disappears
-	if err := s.ReplaceGroupProfiles(g.ID, []Profile{node("new")}); err != nil {
+	if err := s.ReplaceGroupProfiles(g.ID, []Profile{node("new")}, false); err != nil {
 		t.Fatal(err)
 	}
 	if s.SelectedID() != 0 {
@@ -223,5 +223,111 @@ func TestReturnedValuesAreCopies(t *testing.T) {
 	}
 	if got, _ := s.Group(g.ID); got.Name != "g" {
 		t.Errorf("group name changed through a copy: %q", got.Name)
+	}
+}
+
+func names(list []Profile) string {
+	out := ""
+	for _, p := range list {
+		out += p.Name + " "
+	}
+	return out
+}
+
+func TestReorderAndManualOrder(t *testing.T) {
+	s := open(t, t.TempDir())
+	sub, _ := s.AddGroup(Group{Name: "sub", URL: "https://example.com/sub"})
+	manual, _ := s.AddGroup(Group{Name: "manual"})
+	list, _ := s.AddProfiles(sub.ID, []Profile{node("a"), node("b"), node("c")})
+	s.AddProfiles(manual.ID, []Profile{node("x")})
+
+	// c, a; b was left out and goes last
+	if err := s.ReorderProfiles(sub.ID, []int64{list[2].ID, list[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(s.Profiles(sub.ID)); got != "c a b " {
+		t.Fatalf("after reorder: %s", got)
+	}
+	if g, _ := s.Group(sub.ID); !g.ManualOrder {
+		t.Fatal("reordering a subscription did not mark it")
+	}
+	if err := s.ReorderProfiles(manual.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := s.Group(manual.ID); g.ManualOrder {
+		t.Error("a manual group does not need the mark")
+	}
+
+	// a background update keeps the manual order and appends new nodes
+	if err := s.ReplaceGroupProfiles(sub.ID, []Profile{node("a"), node("d"), node("b"), node("c")}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(s.Profiles(sub.ID)); got != "c a b d " {
+		t.Errorf("kept order: %s", got)
+	}
+	if g, _ := s.Group(sub.ID); !g.ManualOrder {
+		t.Error("the mark was dropped by a background update")
+	}
+	// a confirmed manual update starts over from the subscription's order
+	if err := s.ReplaceGroupProfiles(sub.ID, []Profile{node("a"), node("d"), node("b"), node("c")}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(s.Profiles(sub.ID)); got != "a d b c " {
+		t.Errorf("reset order: %s", got)
+	}
+	if g, _ := s.Group(sub.ID); g.ManualOrder {
+		t.Error("the mark survived a reset")
+	}
+	if err := s.SortGroup(sub.ID, "name"); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := s.Group(sub.ID); !g.ManualOrder {
+		t.Error("sorting a subscription did not mark it")
+	}
+}
+
+func TestCountryKeptForUnchangedNodes(t *testing.T) {
+	s := open(t, t.TempDir())
+	sub, _ := s.AddGroup(Group{Name: "sub", URL: "https://example.com/sub"})
+	list, _ := s.AddProfiles(sub.ID, []Profile{node("same"), node("moved")})
+	for _, p := range list {
+		s.SetCountry(p.ID, "JP", "203.0.113.1", CountryExit, 100)
+	}
+	moved := node("moved")
+	moved.Outbound = map[string]any{"type": "socks", "server": "elsewhere.example.com", "server_port": 1080}
+	if err := s.ReplaceGroupProfiles(sub.ID, []Profile{node("same"), moved}, false); err != nil {
+		t.Fatal(err)
+	}
+	got := s.Profiles(sub.ID)
+	if got[0].Country != "JP" || got[0].CountryIP != "203.0.113.1" || got[0].CountrySource != CountryExit {
+		t.Errorf("unchanged node lost its country: %+v", got[0])
+	}
+	if got[1].Country != "" {
+		t.Errorf("a node whose server moved kept its old country: %+v", got[1])
+	}
+}
+
+func TestChainMembers(t *testing.T) {
+	s := open(t, t.TempDir())
+	g, _ := s.AddGroup(Group{Name: "g"})
+	list, _ := s.AddProfiles(g.ID, []Profile{node("entry"), node("exit"), node("other")})
+	chain, err := s.SaveProfile(Profile{GroupID: g.ID, Name: "chain", Type: TypeChain, Chain: []int64{list[0].ID, list[1].ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.ChainsUsing([]int64{list[1].ID}); len(got) != 1 || got[0].ID != chain.ID {
+		t.Errorf("ChainsUsing(exit) = %+v", got)
+	}
+	if got := s.ChainsUsing([]int64{list[2].ID}); len(got) != 0 {
+		t.Errorf("ChainsUsing(other) = %+v", got)
+	}
+	// deleting the chain together with a member is not a conflict
+	if got := s.ChainsUsing([]int64{list[0].ID, chain.ID}); len(got) != 0 {
+		t.Errorf("ChainsUsing(member, chain) = %+v", got)
+	}
+	s.DeleteProfiles([]int64{list[0].ID})
+	m := s.Members(chain)
+	if len(m) != 2 || m[0].ID != 0 || m[1].Name != "exit" {
+		t.Errorf("members after deleting the entry: %+v", m)
 	}
 }

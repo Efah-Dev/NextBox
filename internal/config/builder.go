@@ -28,7 +28,10 @@ type Input struct {
 	Node     *store.Profile // the selected node; may be nil in direct mode
 	// Nodes are loaded next to Node so that the selection can be changed
 	// through the clash API without restarting the core (see NodeTags).
-	Nodes      []store.Profile
+	Nodes []store.Profile
+	// Member looks up the member nodes of chain proxies; may be nil when no
+	// chain proxy is involved.
+	Member     func(id int64) (store.Profile, bool)
 	ClashAPI   string // "127.0.0.1:port"
 	Secret     string
 	RuleSetDir string
@@ -60,9 +63,24 @@ func Build(in Input) (map[string]any, error) {
 		// it, and switching nodes only changes what it points at.
 		nodes := in.Switchable()
 		tags := NodeTags(nodes)
+		used := map[string]bool{TagProxy: true, TagDirect: true}
+		for _, tag := range tags {
+			used[tag] = true
+		}
 		names := make([]string, 0, len(nodes))
+		var nodeOutbounds []any
 		for _, n := range nodes {
+			obs, err := Expand(n, tags[n.ID], in.Member, used)
+			if err != nil {
+				if n.ID == in.Node.ID {
+					return nil, err
+				}
+				continue // another node of the group that cannot be used: leave it out
+			}
 			names = append(names, tags[n.ID])
+			for _, ob := range obs {
+				nodeOutbounds = append(nodeOutbounds, ob)
+			}
 		}
 		outbounds = append(outbounds, map[string]any{
 			"type":      "selector",
@@ -70,14 +88,7 @@ func Build(in Input) (map[string]any, error) {
 			"outbounds": names,
 			"default":   tags[in.Node.ID],
 		})
-		for _, n := range nodes {
-			ob := map[string]any{}
-			for k, v := range n.Outbound {
-				ob[k] = v
-			}
-			ob["tag"] = tags[n.ID]
-			outbounds = append(outbounds, ob)
-		}
+		outbounds = append(outbounds, nodeOutbounds...)
 	}
 	outbounds = append(outbounds, map[string]any{"type": "direct", "tag": TagDirect})
 
@@ -256,10 +267,80 @@ func NodeTags(nodes []store.Profile) map[int64]string {
 	return tags
 }
 
-// BuildTest generates a config for latency tests: one outbound per node and a
-// single local mixed inbound. Each node is reached by authenticating with its
-// own username (see TestUser), so one port serves every node.
-func BuildTest(s store.Settings, nodes []store.Profile, clashAPI, secret string, port int) (map[string]any, error) {
+// ChainError explains why a chain proxy cannot be used.
+type ChainError struct {
+	Chain string // name of the chain proxy
+	Hop   int    // 1-based position of the offending member, 0 for the chain itself
+	Msg   string
+}
+
+func (e *ChainError) Error() string {
+	if e.Hop == 0 {
+		return fmt.Sprintf(i18n.T("链式代理“%s”：%s"), e.Chain, e.Msg)
+	}
+	return fmt.Sprintf(i18n.T("链式代理“%s”的第 %d 跳：%s"), e.Chain, e.Hop, e.Msg)
+}
+
+// Expand returns the outbounds for one profile: one for a plain node, one per
+// hop for a chain proxy. The last outbound (the exit) gets tag; the hops
+// before it get "tag / n" and each dials through the one before it. used
+// holds the tags already taken and receives the hop tags (it may be nil).
+func Expand(p store.Profile, tag string, member func(int64) (store.Profile, bool), used map[string]bool) ([]map[string]any, error) {
+	if !p.IsChain() {
+		return []map[string]any{withTag(p.Outbound, tag)}, nil
+	}
+	if len(p.Chain) < store.MinChainLength || len(p.Chain) > store.MaxChainLength {
+		return nil, &ChainError{Chain: p.Name, Msg: fmt.Sprintf(i18n.T("需要 %d 到 %d 个节点"), store.MinChainLength, store.MaxChainLength)}
+	}
+	out := make([]map[string]any, 0, len(p.Chain))
+	prev := ""
+	for i, id := range p.Chain {
+		var m store.Profile
+		ok := false
+		if member != nil {
+			m, ok = member(id)
+		}
+		switch {
+		case !ok:
+			return nil, &ChainError{Chain: p.Name, Hop: i + 1, Msg: i18n.T("节点已不存在")}
+		case m.IsChain():
+			return nil, &ChainError{Chain: p.Name, Hop: i + 1, Msg: i18n.T("不能是另一个链式代理")}
+		}
+		hopTag := tag
+		if i < len(p.Chain)-1 {
+			hopTag = tag + " / " + strconv.Itoa(i+1)
+			for used != nil && used[hopTag] {
+				hopTag += "'"
+			}
+		}
+		if used != nil {
+			used[hopTag] = true
+		}
+		ob := withTag(m.Outbound, hopTag)
+		delete(ob, "detour") // the chain decides how each hop is reached
+		if prev != "" {
+			ob["detour"] = prev
+		}
+		out = append(out, ob)
+		prev = hopTag
+	}
+	return out, nil
+}
+
+func withTag(outbound map[string]any, tag string) map[string]any {
+	ob := make(map[string]any, len(outbound)+1)
+	for k, v := range outbound {
+		ob[k] = v
+	}
+	ob["tag"] = tag
+	return ob
+}
+
+// BuildTest generates a config for latency tests: one outbound per node (one
+// per hop for a chain proxy) and a single local mixed inbound. Each node is
+// reached by authenticating with its own username (see TestUser), so one port
+// serves every node. member looks up the members of chain proxies.
+func BuildTest(s store.Settings, nodes []store.Profile, member func(int64) (store.Profile, bool), clashAPI, secret string, port int) (map[string]any, error) {
 	directDNS, err := parseDNS(s.DirectDNS, TagDNSDirect)
 	if err != nil {
 		return nil, err
@@ -267,13 +348,18 @@ func BuildTest(s store.Settings, nodes []store.Profile, clashAPI, secret string,
 	outbounds := []any{}
 	users := []any{}
 	rules := []any{}
+	used := map[string]bool{TagDirect: true}
 	for _, n := range nodes {
-		ob := map[string]any{}
-		for k, v := range n.Outbound {
-			ob[k] = v
+		used[TestTag(n.ID)] = true
+	}
+	for _, n := range nodes {
+		obs, err := Expand(n, TestTag(n.ID), member, used)
+		if err != nil {
+			return nil, err
 		}
-		ob["tag"] = TestTag(n.ID)
-		outbounds = append(outbounds, ob)
+		for _, ob := range obs {
+			outbounds = append(outbounds, ob)
+		}
 		users = append(users, map[string]any{"username": TestUser(n.ID), "password": secret})
 		rules = append(rules, map[string]any{"auth_user": []string{TestUser(n.ID)}, "outbound": TestTag(n.ID)})
 	}

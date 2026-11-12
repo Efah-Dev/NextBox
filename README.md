@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <b>简体中文</b> · <a href="README_EN.md">English</a> · <a href="https://github.com/Efah-Dev/NextBox/releases/latest">下载</a> · <a href="https://github.com/Efah-Dev/NextBox-Android">Android 版</a>
+  <b>简体中文</b> · <a href="README_EN.md">English</a> · <a href="https://nextbox.efah.dev/">官网</a> · <a href="https://github.com/Efah-Dev/NextBox/releases/latest">下载</a> · <a href="https://github.com/Efah-Dev/NextBox-Android">Android 版</a>
 </p>
 
 <p align="center">
@@ -37,7 +37,9 @@ NextBox 是 [sing-box](https://github.com/SagerNet/sing-box) 代理内核的桌�
 
 - 🔌 **协议**：Shadowsocks、VMess、VLESS（含 Reality / Vision）、Trojan、Hysteria2、TUIC、AnyTLS、SOCKS、HTTP
 - 📡 **订阅**：Base64 链接列表、Clash / Clash.Meta YAML、sing-box JSON；显示已用流量和到期时间；可按设定的间隔自动更新
-- 🗂️ **节点**：表单编辑常用字段，或直接编辑完整的 sing-box 出站 JSON；搜索、排序、批量删除；导出分享链接
+- 🗂️ **节点**：表单编辑常用字段，或直接编辑完整的 sing-box 出站 JSON；拖动排序；搜索、排序、批量删除；导出分享链接
+- 🚩 **国旗与按国家搜索**：每个节点前显示国旗，默认按落地 IP 判断（URL 测试时顺便检测），也可以改为按服务器 IP；搜“香港”就能找到 HK、🇭🇰、Hong Kong 等节点
+- ⛓️ **链式代理**：让流量依次经过 2 到 8 个节点，例如机场节点做入口、自建 VPS 落地；成员可以来自任意分组，可拖动调整顺序，保存前可测试整条链路
 - 🔀 **切换节点不断流**：同一分组的节点一次载入内核，切换时不重启内核，已建立的连接（例如正在进行的下载）不会中断
 - ⚡ **测速**：URL 测试（与 NekoBox 相同：先建立连接，再测往返时间）和 TCP 测试；可配置测试地址、超时、并发数
 - 🧭 **路由**：规则分流（绕过中国大陆）/ 全局代理 / 全部直连；可视化规则编辑（网站分类、域名、IP、程序名）；屏蔽广告
@@ -61,7 +63,8 @@ NextBox 是 [sing-box](https://github.com/SagerNet/sing-box) 代理内核的桌�
 2. 运行 `NextBox.exe`。程序没有代码签名，第一次运行时 Windows SmartScreen 可能会拦截，
    点击「更多信息 → 仍要运行」即可。
 
-> 切换节点不断流、订阅自动更新、检查更新、拨号连接的系统代理从 v1.1.0 开始提供。
+> 切换节点不断流、订阅自动更新、检查更新、拨号连接的系统代理从 v1.1.0 开始提供；
+> 链式代理、拖动排序、国旗与按国家搜索从 v1.2.0 开始提供。
 
 ## 🚀 快速上手
 
@@ -108,6 +111,16 @@ NextBox 生成的是 sing-box **1.12 及以上**格式的配置，所以可以�
 **规则集需要下载吗？** 默认的「本地内置」镜像使用程序自带的规则集（绕过中国域名和中国 IP），无需联网。
 其他规则集（如屏蔽广告、geosite:xxx）在第一次使用时下载；下载失败或超时只会在日志里报错，
 连接照常进行，只是暂时跳过相关规则。可以在「设置 → 路由规则 → 规则集镜像」里换一个镜像后点「更新规则集」。
+
+**国旗是怎么判断的？** 在「设置 → 订阅与测速 → 节点地区」里选择：
+「落地 IP」在 URL 测试时经节点访问一次 Cloudflare，得到网站实际看到的地区，最准确；
+「服务器 IP」在本地查询 sing-geoip 的 IP 数据库（首次使用时下载约 4 MB），不经过节点，但中转节点会显示入口所在地区。
+检测出结果之前，先根据节点名称推测（悬停国旗可以看到依据）。
+
+**链式代理怎么用？** 「节点」页 → 工具栏的「+」→「新建链式代理」，添加节点并排好顺序：第一个是入口，最后一个是落地。
+链式代理只能保存在手动分组里；成员节点被删除或订阅更新后改了名，链式代理会标为失效，编辑时可以替换那一跳。
+
+**手动排好的顺序会被订阅更新冲掉吗？** 手动点「更新」时会先询问，确认后恢复为订阅里的顺序；后台自动更新会保留你的顺序，新节点加在末尾。
 
 **订阅什么时候自动更新？** 在「设置 → 订阅与测速」里打开「自动更新订阅」并选择间隔。只在 NextBox 运行期间更新，
 程序没有运行时不会更新。
@@ -198,7 +211,7 @@ node docs/render/render.mjs
 
 ## 🗺️ 后续计划
 
-- 链式代理、负载均衡 / 自动选择节点组
+- 负载均衡 / 自动选择节点组
 - 二维码导入导出、全局热键
 - Linux / macOS 支持
 

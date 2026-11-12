@@ -6,11 +6,14 @@ import Icon from '../components/Icon.vue'
 import Switch from '../components/Switch.vue'
 import Segmented from '../components/Segmented.vue'
 import Sparkline from '../components/Sparkline.vue'
+import Flag from '../components/Flag.vue'
+import { bareName, countryTitle, nodeCountry } from '../country'
 import { api, rt } from '../api'
-import { currentGroup, patchSettings, selectedProfile, settings, state } from '../state'
-import { formatBytes, formatDuration, formatSpeed, groupName, latencyClass, latencyText, run, serverOf, toast, typeName } from '../util'
+import { currentGroup, nodesAdded, patchSettings, selectedProfile, settings, state } from '../state'
+import { confirmDialog, formatBytes, formatDuration, formatSpeed, groupName, latencyClass, latencyText, run, serverOf, toast, typeName } from '../util'
 
 const busy = ref(false)
+const heroCountry = computed(() => (selectedProfile.value ? nodeCountry(selectedProfile.value, settings.value) : { code: '', how: '' as const }))
 const now = ref(Date.now())
 const session = ref({ up: 0, down: 0, count: 0 })
 
@@ -51,7 +54,22 @@ async function toggle() {
 async function importClipboard() {
   const text = await rt.clipboardGet()
   if (!text?.trim()) return toast(t('剪贴板是空的'), 'error')
-  run(() => api.importText(text, state.app!.currentGroupId), (m) => m)
+  if (await run(() => api.importText(text, state.app!.currentGroupId), (m) => m)) nodesAdded()
+}
+
+async function updateAll() {
+  const reordered = (state.app?.groups ?? []).filter((g) => g.url && g.manualOrder)
+  if (reordered.length) {
+    const names = reordered.map((g) => groupName(g)).join('、')
+    const go = await confirmDialog(
+      t('节点顺序已调整过'),
+      t('订阅“{0}”的节点顺序被手动调整过。更新后会恢复为订阅里的顺序，确定更新吗？', names),
+      false,
+      t('更新'),
+    )
+    if (!go) return
+  }
+  run(() => api.updateAllSubscriptions(), (m) => m)
 }
 
 function testCurrentGroup() {
@@ -112,11 +130,18 @@ onUnmounted(() => {
         <div class="hero" @click="state.page = 'nodes'">
           <template v-if="selectedProfile">
             <div class="row">
-              <span class="badge">{{ typeName(selectedProfile.type) }}</span>
+              <span v-if="selectedProfile.type === 'chain'" class="badge chain"><Icon name="route" :size="11" />{{ t('链式') }}</span>
+              <span v-else class="badge">{{ typeName(selectedProfile.type) }}</span>
               <span class="lat" :class="latencyClass(selectedProfile.latency)">{{ latencyText(selectedProfile.latency) }}</span>
             </div>
-            <div class="hero-name">{{ selectedProfile.name }}</div>
-            <div class="hero-server faint mono ellipsis">{{ serverOf(selectedProfile.outbound) }}</div>
+            <div class="hero-name">
+              <Flag :code="heroCountry.code" :title="countryTitle(heroCountry, settings)" :size="18" />
+              <span class="ellipsis" :title="selectedProfile.name">{{ bareName(selectedProfile.name) }}</span>
+            </div>
+            <div v-if="selectedProfile.type === 'chain'" class="hero-server faint ellipsis">
+              {{ selectedProfile.members?.map((m) => (m.name ? bareName(m.name) : t('已失效'))).join(' → ') }}
+            </div>
+            <div v-else class="hero-server faint mono ellipsis">{{ serverOf(selectedProfile.outbound) }}</div>
           </template>
           <template v-else>
             <div class="hero-name muted">{{ t('尚未选择节点') }}</div>
@@ -211,7 +236,7 @@ onUnmounted(() => {
           <button class="action" @click="importClipboard">
             <Icon name="clipboard" :size="20" /><span>{{ t('从剪贴板导入') }}</span>
           </button>
-          <button class="action" @click="run(() => api.updateAllSubscriptions(), (m) => m)">
+          <button class="action" @click="updateAll">
             <Icon name="refresh" :size="20" /><span>{{ t('更新全部订阅') }}</span>
           </button>
           <button class="action" :disabled="!state.profiles.length" @click="testCurrentGroup">
@@ -258,11 +283,18 @@ onUnmounted(() => {
   font-size: 15px;
   font-weight: 700;
   line-height: 1.35;
-  word-break: break-all;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.hero-name .ellipsis {
+  min-width: 0;
+}
+.badge.chain {
+  gap: 3px;
+  background: var(--accent);
+  color: #fff;
 }
 .hero-server {
   font-size: 11px;

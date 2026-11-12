@@ -32,6 +32,9 @@ export interface Settings {
   subAutoUpdate: boolean
   subUpdateHours: number
   autoCheckUpdate: boolean
+  /** what a node's country is judged by: the exit IP or the server IP */
+  countrySource: 'exit' | 'server'
+  countryNoticeShown: boolean
   logLevel: string
   logToFile: boolean
   logFileMaxMb: number
@@ -58,6 +61,8 @@ export interface Group {
   updatedAt?: number
   usage?: SubscriptionInfo
   default?: boolean
+  /** the nodes of this subscription were reordered by hand */
+  manualOrder?: boolean
 }
 
 export type Outbound = Record<string, any>
@@ -73,6 +78,36 @@ export interface Profile {
   testedAt?: number
   upload: number
   download: number
+  /** member IDs of a chain proxy (type 'chain'), entry first */
+  chain?: number[]
+  /** the members, resolved by the backend (they may live in other groups) */
+  members?: ChainHop[]
+  country?: string
+  countryIp?: string
+  countrySource?: 'exit' | 'server'
+  countryAt?: number
+}
+
+export interface ChainHop {
+  id: number
+  name: string
+  type: string
+  groupId: number
+  country?: string
+  countrySource?: string
+  /** deleted, or renamed by a subscription update */
+  missing?: boolean
+}
+
+export interface ChainInput {
+  id: number
+  /** -1 creates a new group for it */
+  groupId: number
+  name: string
+  chain: number[]
+  /** result of a test of exactly these hops in the editor, kept on save (0 = none) */
+  latency?: number
+  exit?: { ip: string; country: string }
 }
 
 export interface AppState {
@@ -151,6 +186,10 @@ export interface LatencyResult {
   id: number
   latency: number
   error?: string
+  /** not measurable this way (a chain proxy in a TCP test); the old result stands */
+  skipped?: boolean
+  /** where the node's traffic leaves, when it was looked up */
+  exit?: { ip: string; country: string }
 }
 
 const w = window as any
@@ -184,6 +223,10 @@ export const api = {
   deleteProfiles: (ids: number[]) => call<void>('DeleteProfiles', ids),
   deleteUnavailable: (groupId: number) => call<number>('DeleteUnavailable', groupId),
   sortGroup: (groupId: number, by: string) => call<void>('SortGroup', groupId, by),
+  reorderProfiles: (groupId: number, ids: number[]) => call<void>('ReorderProfiles', groupId, ids),
+  saveChain: (c: ChainInput) => call<Profile>('SaveChain', c),
+  chainsUsing: (ids: number[]) => call<string[]>('ChainsUsing', ids),
+  testChain: (ids: number[]) => call<LatencyResult>('TestChain', ids),
   exportLinks: (ids: number[]) => call<string>('ExportLinks', ids),
   selectProfile: (id: number) => call<void>('SelectProfile', id),
 

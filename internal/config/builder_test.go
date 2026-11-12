@@ -126,6 +126,83 @@ func TestGroupConfigAccepted(t *testing.T) {
 	check(t, bin, cfg)
 }
 
+// Chain proxies are expanded into one outbound per hop, each dialing through
+// the one before, and the result is a config sing-box accepts.
+func TestChainConfigAccepted(t *testing.T) {
+	bin := singBox(t)
+	profiles := sampleProfiles(t) // IDs 1..8: reality, vmess, trojan, ss, hy2, tuic, anytls, socks
+	byID := map[int64]store.Profile{}
+	for _, p := range profiles {
+		byID[p.ID] = p
+	}
+	// a member that brings its own detour must not keep it inside a chain
+	withDetour := byID[4]
+	withDetour.Outbound = map[string]any{}
+	for k, v := range byID[4].Outbound {
+		withDetour.Outbound[k] = v
+	}
+	withDetour.Outbound["detour"] = "somewhere"
+	byID[4] = withDetour
+	member := func(id int64) (store.Profile, bool) { p, ok := byID[id]; return p, ok }
+
+	chain := store.Profile{ID: 100, Name: "Tokyo 01", Type: store.TypeChain, Chain: []int64{4, 3, 1}}
+	broken := store.Profile{ID: 101, Name: "broken", Type: store.TypeChain, Chain: []int64{4, 999}}
+	nested := store.Profile{ID: 102, Name: "nested", Type: store.TypeChain, Chain: []int64{100, 1}}
+	byID[100] = chain
+
+	obs, err := Expand(chain, "Tokyo 01", member, map[string]bool{"Tokyo 01 / 1": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs) != 3 {
+		t.Fatalf("got %d outbounds", len(obs))
+	}
+	if _, ok := obs[0]["detour"]; ok {
+		t.Errorf("first hop kept a detour: %v", obs[0]["detour"])
+	}
+	if obs[0]["tag"] == "Tokyo 01 / 1" {
+		t.Error("hop tag collides with a tag already in use")
+	}
+	if obs[1]["detour"] != obs[0]["tag"] || obs[2]["detour"] != obs[1]["tag"] || obs[2]["tag"] != "Tokyo 01" {
+		t.Errorf("hops not linked: %v / %v / %v", obs[0]["tag"], obs[1]["detour"], obs[2]["detour"])
+	}
+	for _, bad := range []store.Profile{broken, nested, {Name: "short", Type: store.TypeChain, Chain: []int64{1}}} {
+		if _, err := Expand(bad, "x", member, nil); err == nil {
+			t.Errorf("%s: no error", bad.Name)
+		} else {
+			t.Logf("%s: %v", bad.Name, err)
+		}
+	}
+
+	// in the main config: the chain is selectable next to plain nodes, the
+	// broken one is left out, and a chain node named like a plain one is fine
+	s := store.DefaultSettings()
+	s.RouteMode = "global"
+	in := Input{Settings: s, Node: &chain, Nodes: []store.Profile{byID[1], broken, byID[5]}, Member: member,
+		ClashAPI: "127.0.0.1:9090", Secret: "x", RuleSetDir: t.TempDir()}
+	cfg, err := Build(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := cfg["outbounds"].([]any)[0].(map[string]any)
+	if names := selector["outbounds"].([]string); len(names) != 3 {
+		t.Errorf("selector outbounds: %v", names)
+	}
+	check(t, bin, cfg)
+
+	// the selected node being broken is an error, not a silent fallback
+	in.Node = &broken
+	if _, err := Build(in); err == nil {
+		t.Error("building with a broken selected chain did not fail")
+	}
+
+	test, err := BuildTest(s, []store.Profile{chain, byID[2]}, member, "127.0.0.1:9090", "x", 19091)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(t, bin, test)
+}
+
 // A rule-set that could not be fetched must not stop the core from starting:
 // only the rules that need it are left out.
 func TestSkipMissingRuleSets(t *testing.T) {
@@ -159,7 +236,7 @@ func TestSkipMissingRuleSets(t *testing.T) {
 
 func TestTestConfigAccepted(t *testing.T) {
 	bin := singBox(t)
-	cfg, err := BuildTest(store.DefaultSettings(), sampleProfiles(t), "127.0.0.1:9090", "x", 19090)
+	cfg, err := BuildTest(store.DefaultSettings(), sampleProfiles(t), nil, "127.0.0.1:9090", "x", 19090)
 	if err != nil {
 		t.Fatal(err)
 	}

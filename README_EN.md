@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">简体中文</a> · <b>English</b> · <a href="https://github.com/Efah-Dev/NextBox/releases/latest">Download</a> · <a href="https://github.com/Efah-Dev/NextBox-Android">Android</a>
+  <a href="README.md">简体中文</a> · <b>English</b> · <a href="https://nextbox.efah.dev/">Website</a> · <a href="https://github.com/Efah-Dev/NextBox/releases/latest">Download</a> · <a href="https://github.com/Efah-Dev/NextBox-Android">Android</a>
 </p>
 
 <p align="center">
@@ -38,7 +38,9 @@ with a rewritten launcher-style interface, the current sing-box configuration fo
 
 - 🔌 **Protocols**: Shadowsocks, VMess, VLESS (incl. Reality / Vision), Trojan, Hysteria2, TUIC, AnyTLS, SOCKS, HTTP
 - 📡 **Subscriptions**: Base64 link lists, Clash / Clash.Meta YAML, sing-box JSON; shows used traffic and expiry date; optional automatic updates at an interval you choose
-- 🗂️ **Nodes**: form editor for common fields, or edit the full sing-box outbound JSON; search, sort, bulk delete; export share links
+- 🗂️ **Nodes**: form editor for common fields, or edit the full sing-box outbound JSON; drag to reorder; search, sort, bulk delete; export share links
+- 🚩 **Flags and country search**: a flag in front of every node, by exit IP by default (checked during URL tests) or by server IP; searching "Hong Kong" or "香港" finds HK, 🇭🇰 and Hong Kong nodes alike
+- ⛓️ **Chain proxies**: send traffic through 2 to 8 nodes in a row, e.g. an airport node as the entry and your own VPS as the exit; members come from any group, can be reordered by dragging, and the whole chain can be tested before saving
 - 🔀 **Switch nodes without dropping connections**: the nodes of a group are loaded into the core together, so switching does not restart it and open connections (a running download, for example) are not cut
 - ⚡ **Latency test**: URL test (round trip on an established connection, same method as NekoBox) and TCP test; configurable URL, timeout and concurrency
 - 🧭 **Routing**: rule-based (bypass mainland China) / global / direct; visual rule editor (site categories, domains, IPs, programs); ad blocking
@@ -64,7 +66,8 @@ and on up-to-date Windows 10).
    choose *More info → Run anyway*.
 
 > Switching nodes without dropping connections, automatic subscription updates, the update check and the
-> system proxy for dial-up connections are available from v1.1.0 on.
+> system proxy for dial-up connections are available from v1.1.0 on; chain proxies, drag to reorder and
+> flags with country search from v1.2.0 on.
 
 ## 🚀 Quick start
 
@@ -116,6 +119,20 @@ the program (bypass China domains and China IPs), so no network is needed. Other
 geosite:xxx) are downloaded on first use; a failure or timeout is only reported in the log, the connection
 still starts and just skips those rules. To retry, pick a mirror in Settings → Routing → *Rule-set mirror*
 and click *Update rule-sets*.
+
+**How are the flags decided?** Choose in Settings → Subscriptions & tests → *Node location*. *Exit IP* asks
+Cloudflare once through the node during a URL test and shows what websites see, the most accurate option.
+*Server IP* looks the server up in the sing-geoip database (a 4 MB download on first use) without going through
+the node, but relayed nodes then show where their entry is. Until a node is checked, the flag is guessed from
+its name (hover the flag to see why).
+
+**How do I use a chain proxy?** Nodes → the *+* button in the toolbar → *New chain proxy*, then add nodes and
+put them in order: the first is the entry, the last the exit. Chain proxies live in manual groups. When a member
+is deleted, or renamed by a subscription update, the chain is marked broken and the editor lets you replace
+that hop.
+
+**Does a subscription update undo my order?** A manual *Update* asks first and then restores the order of the
+subscription; background updates keep your order and append new nodes.
 
 **When are subscriptions updated automatically?** Turn on *Update subscriptions automatically* in
 Settings → Subscriptions & tests and pick an interval. Updates only happen while NextBox is running.
@@ -210,7 +227,7 @@ node docs/render/render.mjs
 
 ## 🗺️ Roadmap
 
-- Proxy chains, load-balancing / auto-select groups
+- Load-balancing / auto-select groups
 - QR code import / export, global hotkeys
 - Linux / macOS support
 

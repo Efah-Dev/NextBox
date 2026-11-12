@@ -76,3 +76,25 @@ func TestParseVLESSDirtyLink(t *testing.T) {
 		t.Fatalf("name = %q", n.Name)
 	}
 }
+
+// Names keep their spaces also in links without a query string, where the
+// "#name" directly follows the server address.
+func TestNameKeepsSpaces(t *testing.T) {
+	for link, want := range map[string]string{
+		"socks5://127.0.0.1:1080#HK-02%20IPLC":                     "HK-02 IPLC",
+		"trojan://p@example.com:443#Tokyo%2002":                    "Tokyo 02",
+		"ss://YWVzLTI1Ni1nY206cGFzcw@1.2.3.4:8388#US%20San%20Jose": "US San Jose",
+		"trojan://p@%20example.com:443#A%20B":                      "A B",
+	} {
+		n, err := Parse(link)
+		if err != nil {
+			t.Fatalf("%s: %v", link, err)
+		}
+		if n.Name != want {
+			t.Errorf("%s: name %q, want %q", link, n.Name, want)
+		}
+		if s, _ := n.Outbound["server"].(string); strings.Contains(s, " ") {
+			t.Errorf("%s: server %q still has a space", link, s)
+		}
+	}
+}

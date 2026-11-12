@@ -6,6 +6,7 @@ import Switch from '../components/Switch.vue'
 import Segmented from '../components/Segmented.vue'
 import { api, type Outbound, type Profile } from '../api'
 import { run } from '../util'
+import { nodesAdded } from '../state'
 
 const open = defineModel<boolean>({ required: true })
 const props = defineProps<{ profile: Profile | null; groupId: number }>()
@@ -220,7 +221,9 @@ async function save() {
     ? { ...props.profile, name: name.value, outbound: ob.value }
     : { id: 0, groupId: props.groupId, name: name.value, type: ob.value.type, outbound: ob.value, latency: 0, upload: 0, download: 0 }
   const r = await run(() => api.saveProfile(p), t('已保存'))
-  if (r) open.value = false
+  if (!r) return
+  open.value = false
+  if (!props.profile) nodesAdded()
 }
 </script>
 

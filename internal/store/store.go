@@ -295,46 +295,167 @@ func (s *Store) AddProfiles(groupID int64, list []Profile) ([]Profile, error) {
 }
 
 // ReplaceGroupProfiles swaps the content of a subscription group. Nodes whose
-// name and type survive the update keep their ID, so the selection and
-// statistics are preserved.
-func (s *Store) ReplaceGroupProfiles(groupID int64, list []Profile) error {
+// name and type survive the update keep their ID, so the selection, chain
+// proxies using them and their statistics are preserved.
+//
+// The group takes the order of list and its manual order is cleared, unless
+// keepOrder is set: then surviving nodes keep the order they had and new ones
+// are appended (used by background updates, which cannot ask the user).
+func (s *Store) ReplaceGroupProfiles(groupID int64, list []Profile, keepOrder bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.groupLocked(groupID) == nil {
+	g := s.groupLocked(groupID)
+	if g == nil {
 		return errors.New(i18n.T("分组不存在"))
 	}
 	old := map[string]*Profile{}
+	var oldOrder []*Profile
 	kept := s.data.Profiles[:0]
 	for _, p := range s.data.Profiles {
 		if p.GroupID == groupID {
 			old[p.Type+"|"+p.Name] = p
+			oldOrder = append(oldOrder, p)
 		} else {
 			kept = append(kept, p)
 		}
 	}
-	selectedSurvives := false
+	fresh := make([]*Profile, 0, len(list))
+	byID := map[int64]*Profile{}
 	for _, p := range list {
 		p := p
 		p.GroupID = groupID
 		if prev, ok := old[p.Type+"|"+p.Name]; ok {
 			p.ID = prev.ID
 			p.Upload, p.Download = prev.Upload, prev.Download
+			// the server may have moved: keep the country only for an unchanged outbound
+			if sameOutbound(prev.Outbound, p.Outbound) {
+				p.Country, p.CountryIP, p.CountrySource, p.CountryAt = prev.Country, prev.CountryIP, prev.CountrySource, prev.CountryAt
+			}
 			delete(old, p.Type+"|"+p.Name)
 		} else {
 			p.ID = s.nextIDLocked()
 		}
-		if p.ID == s.data.SelectedID {
-			selectedSurvives = true
+		fresh = append(fresh, &p)
+		byID[p.ID] = &p
+	}
+	if keepOrder {
+		ordered := make([]*Profile, 0, len(fresh))
+		for _, p := range oldOrder {
+			if n, ok := byID[p.ID]; ok {
+				ordered = append(ordered, n)
+				delete(byID, p.ID)
+			}
 		}
-		kept = append(kept, &p)
+		for _, p := range fresh {
+			if _, ok := byID[p.ID]; ok {
+				ordered = append(ordered, p)
+			}
+		}
+		fresh = ordered
+	} else {
+		g.ManualOrder = false
 	}
 	for _, p := range old {
-		if p.ID == s.data.SelectedID && !selectedSurvives {
+		if p.ID == s.data.SelectedID {
 			s.data.SelectedID = 0
 		}
 	}
-	s.data.Profiles = kept
+	s.data.Profiles = append(kept, fresh...)
 	return s.saveDataLocked()
+}
+
+func sameOutbound(a, b map[string]any) bool {
+	ja, _ := json.Marshal(a)
+	jb, _ := json.Marshal(b)
+	return string(ja) == string(jb)
+}
+
+// ReorderProfiles puts the nodes of a group into the order of ids. Nodes of
+// the group missing from ids keep their relative order after the listed ones.
+func (s *Store) ReorderProfiles(groupID int64, ids []int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g := s.groupLocked(groupID)
+	if g == nil {
+		return errors.New(i18n.T("分组不存在"))
+	}
+	var idx []int
+	items := map[int64]*Profile{}
+	var rest []*Profile
+	for i, p := range s.data.Profiles {
+		if p.GroupID == groupID {
+			idx = append(idx, i)
+			items[p.ID] = p
+			rest = append(rest, p)
+		}
+	}
+	ordered := make([]*Profile, 0, len(idx))
+	for _, id := range ids {
+		if p, ok := items[id]; ok {
+			ordered = append(ordered, p)
+			delete(items, id)
+		}
+	}
+	for _, p := range rest {
+		if _, ok := items[p.ID]; ok {
+			ordered = append(ordered, p)
+		}
+	}
+	for k, i := range idx {
+		s.data.Profiles[i] = ordered[k]
+	}
+	if g.URL != "" {
+		g.ManualOrder = true
+	}
+	return s.saveDataLocked()
+}
+
+// ChainsUsing returns the chain proxies that have any of ids as a member,
+// leaving out those in ids themselves.
+func (s *Store) ChainsUsing(ids []int64) []Profile {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	set := map[int64]bool{}
+	for _, id := range ids {
+		set[id] = true
+	}
+	out := []Profile{}
+	for _, p := range s.data.Profiles {
+		if !p.IsChain() || set[p.ID] {
+			continue
+		}
+		for _, m := range p.Chain {
+			if set[m] {
+				out = append(out, *p)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// Members returns the member nodes of a chain proxy in order; a member that
+// no longer exists is returned with ID 0 at its position.
+func (s *Store) Members(p Profile) []Profile {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Profile, len(p.Chain))
+	for i, id := range p.Chain {
+		if m := s.profileLocked(id); m != nil {
+			out[i] = *m
+		}
+	}
+	return out
+}
+
+// SetCountry records where a node is. Like SetLatency it reaches the disk
+// with the next save or Flush.
+func (s *Store) SetCountry(id int64, code, ip, source string, at int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p := s.profileLocked(id); p != nil {
+		p.Country, p.CountryIP, p.CountrySource, p.CountryAt = code, ip, source, at
+	}
 }
 
 func (s *Store) DeleteProfiles(ids []int64) error {
@@ -384,6 +505,9 @@ func (s *Store) Flush() error {
 func (s *Store) SortGroup(groupID int64, by string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if g := s.groupLocked(groupID); g != nil && g.URL != "" {
+		g.ManualOrder = true
+	}
 	var idx []int
 	var items []*Profile
 	for i, p := range s.data.Profiles {

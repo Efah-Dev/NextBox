@@ -98,13 +98,29 @@ async function checkUpdate() {
     checking.value = false
   }
 }
-// the core row is left out when no core is installed
-const updateRows = computed(() =>
-  [
-    { name: 'NextBox', item: state.update!.app },
-    { name: 'sing-box', item: state.update!.core },
-  ].filter((u) => u.item.current),
-)
+// one row per component: what is installed and what the last check found
+const versionRows = computed(() => {
+  const status = (item?: { latest: string; hasUpdate: boolean }) =>
+    !item ? '' : item.hasUpdate ? 'new' : item.latest ? 'latest' : 'failed'
+  return [
+    {
+      name: 'NextBox', kind: 'app', current: 'v' + (state.app?.version ?? ''), channel: '',
+      status: status(state.update?.app), latest: state.update?.app.latest ?? '', url: state.update?.app.url ?? '',
+    },
+    {
+      name: t('sing-box 内核'), kind: 'core', current: core.value?.found ? core.value.version : '', channel: core.value?.channel ?? '',
+      status: core.value?.found && state.update?.core.current ? status(state.update.core) : '',
+      latest: state.update?.core.latest ?? '', url: state.update?.core.url ?? '',
+    },
+  ]
+})
+
+const aboutLinks = [
+  { label: t('官网'), text: 'nextbox.efah.dev', url: 'https://nextbox.efah.dev/', icon: 'nodes' },
+  { label: t('项目地址'), text: 'Efah-Dev/NextBox', url: 'https://github.com/Efah-Dev/NextBox', icon: 'link' },
+  { label: t('原项目'), text: 'MatsuriDayo/nekoray', url: 'https://github.com/MatsuriDayo/nekoray', icon: 'link' },
+  { label: t('规则集'), text: 'SagerNet/sing-geosite · sing-geoip', url: 'https://github.com/SagerNet/sing-geosite', icon: 'route' },
+]
 
 const core = ref<CoreInfo>()
 onMounted(async () => (core.value = await api.getCoreInfo().catch(() => undefined)))
@@ -373,6 +389,21 @@ function onScroll() {
           <div class="control"><Switch v-model="form.subUpdateByProxy" /></div>
         </div>
         <div class="form-row">
+          <div class="label">
+            {{ t('节点地区') }}
+            <span class="hint">{{ form.countrySource === 'server' ? t('按服务器 IP：本地查询，中转节点会显示入口地区') : t('按落地 IP：URL 测试时顺便检测，最准确') }}</span>
+          </div>
+          <div class="control">
+            <Segmented
+              v-model="form.countrySource"
+              :options="[
+                { value: 'exit', label: t('落地 IP') },
+                { value: 'server', label: t('服务器 IP') },
+              ]"
+            />
+          </div>
+        </div>
+        <div class="form-row">
           <div class="label">{{ t('自动更新订阅') }}<span class="hint">{{ t('NextBox 运行期间在后台更新') }}</span></div>
           <div class="control">
             <select v-if="form.subAutoUpdate" v-model.number="form.subUpdateHours" class="select" style="width: 160px">
@@ -432,59 +463,67 @@ function onScroll() {
       </Card>
 
       <Card id="sec-about" :title="t('关于')" :index="8">
-        <div class="about">
-          <span class="about-logo"><PawLogo :size="44" /></span>
-          <div>
-            <div class="about-name">NextBox <span class="badge">v{{ state.app?.version }}</span></div>
-            <div class="muted">{{ t('基于 NekoBox for PC（nekoray）修改而来的现代化代理客户端，内核采用 sing-box。') }}</div>
+        <div class="about-hero">
+          <span class="about-logo"><PawLogo :size="46" /></span>
+          <div class="about-id">
+            <div class="about-name">NextBox <span class="badge ver">v{{ state.app?.version }}</span></div>
+            <p class="about-desc">{{ t('基于 NekoBox for PC（nekoray）修改而来的现代化代理客户端，内核采用 sing-box。') }}</p>
           </div>
         </div>
-        <div class="core">
-          <template v-if="core?.found">
-            <div class="core-grid">
-              <span class="faint">{{ t('内核版本') }}</span>
-              <span>
-                sing-box <b>{{ core.version }}</b>
-                <span class="badge" :class="{ testing: core.channel === 'testing' }">
-                  {{ core.channel === 'testing' ? t('testing 测试分支') : t('stable 稳定分支') }}
-                </span>
-              </span>
-              <span class="faint">{{ t('启用功能') }}</span>
-              <span class="mono tags">{{ core.tags.split(',').join(' · ') }}</span>
-            </div>
-          </template>
-          <div v-else class="faint">{{ t('未找到内核：{0}', state.app?.corePath) }}</div>
-        </div>
-        <div class="form-row">
-          <div class="label">{{ t('检查更新') }}<span class="hint">{{ t('与 GitHub 上的最新版本比对，不会自动下载') }}</span></div>
-          <div class="control">
+
+        <section class="about-block">
+          <div class="block-head">
+            <span class="block-title">{{ t('版本与更新') }}</span>
             <button class="btn small" :disabled="checking" @click="checkUpdate">
-              <Icon name="refresh" :size="13" /> {{ checking ? t('正在检查…') : t('检查更新') }}
+              <Icon name="refresh" :size="13" :class="{ spin: checking }" /> {{ checking ? t('正在检查…') : t('检查更新') }}
             </button>
           </div>
-        </div>
-        <div v-if="state.update" class="updates">
-          <div v-for="u in updateRows" :key="u.name">
-            <template v-if="u.item.hasUpdate">
-              <span class="badge new">{{ t('有新版本') }}</span>
-              {{ u.name }} <b>{{ u.item.latest }}</b>
-              <span class="faint">{{ t('（当前 {0}）', u.item.current) }}</span>
-              <a @click="api.openURL(u.item.url)">{{ t('查看发布页') }}</a>
-            </template>
-            <span v-else-if="u.item.latest" class="faint">{{ t('{0} 已是最新版本（{1}）', u.name, u.item.current) }}</span>
-            <span v-else class="faint">{{ t('{0}：未能获取最新版本', u.name) }}</span>
+          <div class="versions">
+            <div v-for="v in versionRows" :key="v.name" class="version">
+              <span class="version-icon" :class="v.kind"><PawLogo v-if="v.kind === 'app'" :size="20" /><Icon v-else name="route" :size="17" /></span>
+              <div class="version-id">
+                <b>{{ v.name }}</b>
+                <span class="faint">
+                  <template v-if="v.current">{{ v.current }}</template>
+                  <template v-else>{{ t('未找到内核：{0}', state.app?.corePath) }}</template>
+                  <span v-if="v.channel" class="badge channel" :class="{ testing: v.channel === 'testing' }">
+                    {{ v.channel === 'testing' ? t('testing 测试分支') : t('stable 稳定分支') }}
+                  </span>
+                </span>
+              </div>
+              <span v-if="v.status === 'new'" class="status new">
+                {{ t('发现新版本 {0}', v.latest) }}
+                <a @click="api.openURL(v.url)">{{ t('查看发布页') }} <Icon name="chevron" :size="12" /></a>
+              </span>
+              <span v-else-if="v.status === 'latest'" class="status ok"><Icon name="check" :size="13" :stroke="2.6" />{{ t('已是最新版本') }}</span>
+              <span v-else-if="v.status === 'failed'" class="status warn">{{ t('未能获取最新版本') }}</span>
+              <span v-else-if="v.current" class="status idle">{{ t('尚未检查') }}</span>
+            </div>
           </div>
-        </div>
-        <div class="form-row">
-          <div class="label">{{ t('自动检查更新') }}<span class="hint">{{ t('启动后检查一次，有新版本时提醒') }}</span></div>
-          <div class="control"><Switch v-model="form.autoCheckUpdate" /></div>
-        </div>
-        <div class="credits">
-          <div>{{ t('项目地址：') }}<a @click="api.openURL('https://github.com/Efah-Dev/NextBox')">Efah-Dev/NextBox</a></div>
-          <div>{{ t('原项目：') }}<a @click="api.openURL('https://github.com/MatsuriDayo/nekoray')">MatsuriDayo/nekoray</a></div>
-          <div>{{ t('规则集：SagerNet/sing-geosite、sing-geoip') }}</div>
-          <div class="faint">{{ t('本软件以 GPL-3.0-or-later 协议开源。') }}</div>
-        </div>
+          <div class="auto-check">
+            <div>
+              <div>{{ t('自动检查更新') }}</div>
+              <div class="faint hint">{{ t('启动后检查一次，之后每天一次；只与 GitHub 上的正式版比对，不会自动下载') }}</div>
+            </div>
+            <Switch v-model="form.autoCheckUpdate" />
+          </div>
+        </section>
+
+        <section class="about-block">
+          <div class="block-head"><span class="block-title">{{ t('链接') }}</span></div>
+          <div class="links">
+            <a v-for="l in aboutLinks" :key="l.url" class="link" @click="api.openURL(l.url)">
+              <span class="link-icon"><Icon :name="l.icon" :size="15" /></span>
+              <span class="link-text">
+                <span class="faint">{{ l.label }}</span>
+                <b>{{ l.text }}</b>
+              </span>
+              <Icon class="link-go" name="chevron" :size="14" />
+            </a>
+          </div>
+        </section>
+
+        <p class="license faint">{{ t('NextBox 以 GPL-3.0-or-later 协议开源。所用第三方组件的许可证见程序目录里的 THIRD_PARTY_NOTICES.md。') }}</p>
       </Card>
     </main>
   </div>
@@ -544,94 +583,233 @@ function onScroll() {
 .warn span {
   flex: 1;
 }
-.about {
+/* ---- about ---- */
+.about-hero {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 18px;
+  padding: 4px 2px 6px;
 }
 .about-logo {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   flex-shrink: 0;
-  border-radius: 18px;
+  border-radius: 20px;
   background: color-mix(in srgb, #ff5c9a 10%, var(--card));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #ff5c9a 14%, transparent);
   display: grid;
   place-items: center;
 }
+.about-id {
+  min-width: 0;
+}
 .about-name {
-  font-size: 17px;
-  font-weight: 700;
-  margin-bottom: 4px;
+  font-size: 20px;
+  font-weight: 800;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
-.core {
-  margin-top: 16px;
-  padding: 12px 14px;
-  border-radius: var(--radius-sm);
-  background: var(--hover);
+.about-desc {
+  margin: 6px 0 0;
+  color: var(--text-2);
+  line-height: 1.7;
 }
-.core-grid {
+.badge.ver {
+  font-size: 12px;
+}
+
+.about-block {
+  margin-top: 22px;
+}
+.block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  margin-bottom: 10px;
+}
+.block-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-3);
+}
+
+.versions {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.version {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+}
+.version + .version {
+  border-top: 1px solid var(--line);
+}
+.version-icon {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 11px;
   display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px 12px;
-  line-height: 1.6;
-}
-.core-grid a {
+  place-items: center;
+  background: var(--accent-soft);
   color: var(--accent);
-  cursor: pointer;
 }
-.core-grid a:hover {
-  text-decoration: underline;
+.version-icon.core {
+  background: color-mix(in srgb, #6d5cff 12%, var(--card));
+  color: #6d5cff;
 }
-.core .badge {
-  margin-left: 6px;
+.version-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.version-id b {
+  font-size: 14px;
+}
+.version-id .faint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+.badge.channel {
   background: color-mix(in srgb, var(--good) 14%, var(--card));
   color: var(--good);
 }
-.core .badge.testing {
+.badge.channel.testing {
   background: color-mix(in srgb, var(--mid) 14%, var(--card));
   color: var(--mid);
 }
-.tags {
-  font-size: 11px;
-  color: var(--text-2);
-  word-break: break-word;
-  user-select: text;
-}
-.updates {
-  display: flex;
-  flex-direction: column;
+.status {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  padding: 2px 0 10px;
-  line-height: 1.6;
+  font-size: 12px;
+  font-weight: 600;
 }
-.updates a {
-  margin-left: 8px;
-  color: var(--accent);
-  cursor: pointer;
-}
-.updates a:hover {
-  text-decoration: underline;
-}
-.updates .badge.new {
-  margin-right: 6px;
-  background: color-mix(in srgb, var(--good) 14%, var(--card));
+.status.ok {
   color: var(--good);
 }
-.credits {
-  margin-top: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  line-height: 1.6;
+.status.idle {
+  color: var(--text-3);
+  font-weight: 500;
 }
-.credits a {
+.status.warn {
+  color: var(--mid);
+}
+.status.new {
+  padding: 5px 6px 5px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--good) 12%, var(--card));
+  color: var(--good);
+}
+.status.new a {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--card);
   color: var(--accent);
   cursor: pointer;
 }
-.credits a:hover {
+.status.new a:hover {
   text-decoration: underline;
+}
+.auto-check {
+  margin-top: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  background: var(--hover);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.auto-check .hint {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--card-border);
+  background: var(--card);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.link:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+.link-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--hover);
+  color: var(--accent);
+}
+.link-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12px;
+}
+.link-text b {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.link-go {
+  color: var(--text-3);
+  transition: transform 0.15s, color 0.15s;
+}
+.link:hover .link-go {
+  color: var(--accent);
+  transform: translateX(2px);
+}
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.license {
+  margin: 22px 0 2px;
+  font-size: 12px;
+  line-height: 1.6;
 }
 </style>

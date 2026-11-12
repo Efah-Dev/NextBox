@@ -61,7 +61,8 @@ func (a *App) autoUpdateSubscriptions(failed map[int64]time.Time) {
 		if last, ok := failed[g.ID]; ok && now.Sub(last) < time.Hour {
 			continue
 		}
-		if _, err := a.UpdateSubscription(g.ID); err != nil {
+		// nobody is there to confirm resetting a manual order, so it is kept
+		if _, err := a.updateSubscription(g.ID, true); err != nil {
 			failed[g.ID] = now
 		} else {
 			delete(failed, g.ID)

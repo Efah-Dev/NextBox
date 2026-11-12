@@ -16,6 +16,8 @@ export const languages: { value: Lang; label: string }[] = [
 
 let lang: Lang = 'zh-CN'
 
+export const currentLang = (): Lang => lang
+
 export function setLang(l: string | undefined) {
   lang = languages.some((x) => x.value === l) ? (l as Lang) : 'zh-CN'
   document.documentElement.lang = lang

@@ -1,0 +1,10 @@
+# Text files use LF line ends in the repository and in every checkout, so
+# diffs stay clean whatever core.autocrlf is set to on a machine.
+* text=auto eol=lf
+
+# never touched
+*.png binary
+*.ico binary
+*.srs binary
+*.woff2 binary
+*.zip binary

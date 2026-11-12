@@ -3,6 +3,7 @@ import { onMounted, ref, watchEffect } from 'vue'
 import TitleBar from './components/TitleBar.vue'
 import Toasts from './components/Toasts.vue'
 import DialogHost from './components/DialogHost.vue'
+import CountryNotice from './components/CountryNotice.vue'
 import Home from './views/Home.vue'
 import Nodes from './views/Nodes.vue'
 import Connections from './views/Connections.vue'
@@ -63,6 +64,7 @@ onMounted(async () => {
     </Transition>
     <Toasts />
     <DialogHost />
+    <CountryNotice />
   </div>
 </template>
 

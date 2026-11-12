@@ -28,6 +28,9 @@ The full license texts are included in the release package under `licenses/`.
 | yaml.v3 (`gopkg.in/yaml.v3`) | MIT and Apache-2.0 |
 | Go extended libraries (`golang.org/x/sys`, `x/net`, `x/crypto`, `x/text`) | BSD-3-Clause |
 | Vue 3 (`vue`) | MIT |
+| maxminddb-golang (`github.com/oschwald/maxminddb-golang`) | ISC |
+| country-flag-emoji-polyfill (font loading approach) | MIT |
+| Twemoji Country Flags font (flag emoji, embedded) | CC-BY-4.0, artwork from Twemoji (https://github.com/twitter/twemoji) |
 | Other indirect Go modules (see `go.mod` / `go.sum`) | MIT / BSD / Apache-2.0 |
 
 ## Rule-set data
@@ -36,6 +39,7 @@ The full license texts are included in the release package under `licenses/`.
 |---|---|---|
 | `geosite-cn.srs`, `geoip-cn.srs` (embedded in `NextBox.exe`, unmodified) | See the upstream repositories | `rule-set` branches of https://github.com/SagerNet/sing-geosite and https://github.com/SagerNet/sing-geoip |
 | Other geosite / geoip rule-sets (downloaded on demand, not bundled) | See the upstream repositories | same as above |
+| `geoip.db` (only when node location is set to *server IP*; downloaded on demand to `config/`, not bundled) | See the upstream repository | `release` branch of https://github.com/SagerNet/sing-geoip |
 
 ## Origin
 

@@ -172,3 +172,25 @@ func downloadFile(ctx context.Context, client *http.Client, u, dest string) erro
 	}
 	return os.Rename(tmp, dest)
 }
+
+// ---------------------------------------------------------------- rule-sets
+
+func (a *App) UpdateRuleSets() (string, error) {
+	s := a.store.Settings()
+	names := config.RequiredRuleSets(s)
+	if len(names) == 0 {
+		return i18n.T("当前设置不需要规则集"), nil
+	}
+	proxy := ""
+	if a.isRunning() {
+		proxy = "http://" + proxyAddr(s)
+	}
+	a.ruleSetMu.Lock()
+	err := a.fetchRuleSetsLocked(names, proxy)
+	a.ruleSetMu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	go a.restartIfRunning()
+	return fmt.Sprintf(i18n.T("已更新 %d 个规则集"), len(names)), nil
+}

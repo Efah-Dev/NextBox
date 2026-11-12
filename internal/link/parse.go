@@ -117,7 +117,7 @@ func cleanHost(link string) string {
 	if !ok {
 		return link
 	}
-	end := strings.IndexAny(rest, "/?")
+	end := strings.IndexAny(rest, "/?#")
 	if end < 0 {
 		end = len(rest)
 	}

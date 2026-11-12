@@ -3,9 +3,13 @@ import { t } from '../i18n'
 import { computed, ref } from 'vue'
 import Icon from '../components/Icon.vue'
 import Menu from '../components/Menu.vue'
+import Flag from '../components/Flag.vue'
 import NodeEditor from './NodeEditor.vue'
+import ChainEditor from './ChainEditor.vue'
 import { api, rt, type Profile } from '../api'
-import { currentGroup, latencyTest, settings, state } from '../state'
+import { currentGroup, latencyTest, nodesAdded, settings, state } from '../state'
+import { bareName, countryMatches, countryTitle, nodeCountry } from '../country'
+import { moveItem, useDragSort } from '../drag'
 import {
   confirmDialog, formatBytes, groupName, httpWarning, latencyClass, latencyText, promptDialog, run, serverOf, toast, typeName,
   type MenuItem,
@@ -15,6 +19,8 @@ const query = ref('')
 const updating = ref(false)
 const editorOpen = ref(false)
 const editing = ref<Profile | null>(null)
+const chainOpen = ref(false)
+const editingChain = ref<Profile | null>(null)
 
 const groupId = computed(() => state.app?.currentGroupId ?? 0)
 const testing = computed(() => !!state.app?.testing)
@@ -23,8 +29,31 @@ const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
   if (!q) return state.profiles
   return state.profiles.filter(
-    (p) => p.name.toLowerCase().includes(q) || p.type.includes(q) || serverOf(p.outbound).toLowerCase().includes(q),
+    (p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.type.includes(q) ||
+      serverOf(p.outbound).toLowerCase().includes(q) ||
+      // 香港 finds HK-01, 🇭🇰 01 and nodes detected in Hong Kong
+      countryMatches(nodeCountry(p, settings.value).code, q) ||
+      !!p.members?.some((m) => m.name.toLowerCase().includes(q)),
   )
+})
+
+/** A chain proxy that cannot be used: which hops are gone. */
+const brokenHops = (p: Profile) => (p.members ?? []).flatMap((m, i) => (m.missing ? [i + 1] : []))
+
+// ---- drag to reorder (not while searching: the list is then partial) ----
+const listEl = ref<HTMLElement>()
+const sorter = useDragSort({
+  container: listEl,
+  item: '.node',
+  count: () => state.profiles.length,
+  enabled: () => !query.value.trim() && state.profiles.length > 1,
+  ignore: '.node-actions, button',
+  onDrop: (from, to) => {
+    moveItem(state.profiles, from, to)
+    run(() => api.reorderProfiles(groupId.value, state.profiles.map((p) => p.id)))
+  },
 })
 
 const usage = computed(() => {
@@ -56,11 +85,21 @@ async function addSubscription() {
   ], t('支持 Base64 链接列表、Clash / Clash.Meta YAML 与 sing-box JSON 格式。'))
   if (!r) return
   updating.value = true
-  await run(() => api.addSubscription(r[0], r[1]), (m) => m)
+  const ok = await run(() => api.addSubscription(r[0], r[1]), (m) => m)
   updating.value = false
+  if (ok) nodesAdded()
 }
 
 async function updateSubscription() {
+  if (currentGroup.value?.manualOrder) {
+    const go = await confirmDialog(
+      t('节点顺序已调整过'),
+      t('这个订阅的节点顺序被手动调整过。更新后会恢复为订阅里的顺序，确定更新吗？'),
+      false,
+      t('更新'),
+    )
+    if (!go) return
+  }
   updating.value = true
   await run(() => api.updateSubscription(groupId.value), (m) => m)
   updating.value = false
@@ -78,15 +117,27 @@ async function editGroup() {
 async function deleteGroup() {
   const g = currentGroup.value
   if (!g) return
-  if (await confirmDialog(t('删除分组'), t('确定删除“{0}”及其中的 {1} 个节点吗？', groupName(g), state.profiles.length), true)) {
+  let msg = t('确定删除“{0}”及其中的 {1} 个节点吗？', groupName(g), state.profiles.length)
+  msg += await chainNote(state.profiles.map((p) => p.id))
+  if (await confirmDialog(t('删除分组'), msg, true)) {
     run(() => api.deleteGroup(g.id), t('分组已删除'))
   }
+}
+
+/** A warning about the chain proxies that deleting these nodes would break. */
+async function chainNote(ids: number[]) {
+  const names = await api.chainsUsing(ids).catch(() => [] as string[])
+  if (!names.length) return ''
+  const list = names.map((n) => `“${bareName(n)}”`).join('、')
+  return '\n\n' + (ids.length === 1
+    ? t('⚠ 它是 {0} 个链式代理的成员：{1}。删除后这些链式代理会失效。', names.length, list)
+    : t('⚠ 其中有节点是 {0} 个链式代理的成员：{1}。删除后这些链式代理会失效。', names.length, list))
 }
 
 async function importClipboard() {
   const text = await rt.clipboardGet()
   if (!text?.trim()) return toast(t('剪贴板是空的'), 'error')
-  run(() => api.importText(text, groupId.value), (m) => m)
+  if (await run(() => api.importText(text, groupId.value), (m) => m)) nodesAdded()
 }
 
 function newProfile() {
@@ -94,10 +145,25 @@ function newProfile() {
   editorOpen.value = true
 }
 
+function newChain() {
+  editingChain.value = null
+  chainOpen.value = true
+}
+
 function editProfile(p: Profile) {
+  if (p.type === 'chain') {
+    editingChain.value = p
+    chainOpen.value = true
+    return
+  }
   editing.value = p
   editorOpen.value = true
 }
+
+const addItems = computed<MenuItem[]>(() => [
+  { label: t('新建节点'), hint: t('手动填写一个节点'), icon: 'edit', action: newProfile },
+  { label: t('新建链式代理'), hint: t('让流量依次经过多个节点'), icon: 'route', action: newChain },
+])
 
 async function shareProfile(p: Profile) {
   const link = await run(() => api.exportLinks([p.id]))
@@ -108,14 +174,24 @@ async function shareProfile(p: Profile) {
 }
 
 async function deleteProfile(p: Profile) {
-  if (await confirmDialog(t('删除节点'), t('确定删除“{0}”吗？', p.name), true)) run(() => api.deleteProfiles([p.id]))
+  const msg = t('确定删除“{0}”吗？', p.name) + (await chainNote([p.id]))
+  if (await confirmDialog(t('删除节点'), msg, true)) run(() => api.deleteProfiles([p.id]))
+}
+
+/** Explains why a chain proxy cannot be used; true when it can. */
+function usable(p: Profile) {
+  const gone = brokenHops(p)
+  if (gone.length) toast(t('链式代理“{0}”的第 {1} 跳已不存在，请编辑后再使用', p.name, gone.join('、')), 'error')
+  return !gone.length
 }
 
 function select(p: Profile) {
+  if (sorter.wasDragged() || !usable(p)) return
   if (p.id !== state.app?.selectedId) run(() => api.selectProfile(p.id))
 }
 
 async function selectAndConnect(p: Profile) {
+  if (sorter.wasDragged() || !usable(p)) return
   await run(() => api.selectProfile(p.id))
   if (!state.app?.running) run(() => api.connect(), t('连接成功'))
 }
@@ -127,10 +203,15 @@ function test(mode: 'url' | 'tcp') {
 }
 
 async function copyAll() {
-  const text = await run(() => api.exportLinks(filtered.value.map((p) => p.id)))
+  const nodes = filtered.value.filter((p) => p.type !== 'chain')
+  const chains = filtered.value.length - nodes.length
+  if (!nodes.length) return toast(t('链式代理没有分享链接'), 'error')
+  const text = await run(() => api.exportLinks(nodes.map((p) => p.id)))
   if (text) {
     await rt.clipboardSet(text)
-    toast(t('已复制 {0} 个节点的链接', filtered.value.length), 'success')
+    let msg = t('已复制 {0} 个节点的链接', nodes.length)
+    if (chains) msg += t('（跳过 {0} 个链式代理，它们没有分享链接）', chains)
+    toast(msg, 'success')
   }
 }
 
@@ -235,7 +316,7 @@ const moreItems = computed<MenuItem[]>(() => [
           <Icon name="refresh" :class="{ spin: updating }" /> {{ t('更新') }}
         </button>
         <button class="btn" :title="t('从剪贴板导入')" @click="importClipboard"><Icon name="clipboard" /> {{ t('导入') }}</button>
-        <button class="btn icon" :title="t('新建节点')" @click="newProfile"><Icon name="plus" /></button>
+        <Menu :items="addItems" icon="plus" />
         <button v-if="testing" class="btn danger" @click="run(() => api.stopTest())"><Icon name="close" /> {{ t('停止测速') }}</button>
         <Menu v-else :items="testItems" icon="zap" :label="t('测速')" />
         <Menu :items="moreItems" />
@@ -265,33 +346,44 @@ const moreItems = computed<MenuItem[]>(() => [
           <span />
         </div>
       </div>
-      <div class="list scroll">
+      <div ref="listEl" class="list scroll" :class="{ 'sort-settling': sorter.drag.settling, sortable: !query.trim() }">
         <div
           v-for="(p, i) in filtered"
           :key="p.id"
           class="node"
-          :class="{
+          :class="[{
             selected: p.id === state.app?.selectedId,
             running: p.id === state.app?.runningId,
             probing: latencyTest.running.has(p.id),
-          }"
-          :style="{ '--i': Math.min(i, 12) }"
+            broken: brokenHops(p).length > 0,
+          }, sorter.classes(i)]"
+          :style="[{ '--i': Math.min(i, 12) }, sorter.style(i)]"
+          @pointerdown="sorter.start($event, i)"
           @click="select(p)"
           @dblclick="selectAndConnect(p)"
         >
           <span class="radio" />
           <div class="node-name">
-            <span class="ellipsis" :title="p.name">{{ p.name }}</span>
+            <Flag :code="nodeCountry(p, settings).code" :title="countryTitle(nodeCountry(p, settings), settings)" />
+            <span class="ellipsis" :title="p.name">{{ bareName(p.name) }}</span>
             <span v-if="p.upload + p.download > 0" class="faint traffic">{{ formatBytes(p.upload + p.download) }}</span>
           </div>
-          <span class="node-type"><span class="badge">{{ typeName(p.type) }}</span></span>
-          <span class="faint mono ellipsis node-server">{{ serverOf(p.outbound) }}</span>
+          <span class="node-type">
+            <span v-if="brokenHops(p).length" class="badge bad"><Icon name="warn" :size="11" />{{ t('失效') }}</span>
+            <span v-else-if="p.type === 'chain'" class="badge chain"><Icon name="route" :size="11" />{{ t('链式') }}</span>
+            <span v-else class="badge">{{ typeName(p.type) }}</span>
+          </span>
+          <span v-if="brokenHops(p).length" class="ellipsis node-route bad">{{ t('第 {0} 跳的节点已不存在', brokenHops(p).join('、')) }}</span>
+          <span v-else-if="p.type === 'chain'" class="ellipsis node-route" :title="p.members?.map((m) => m.name).join(' → ')">
+            <template v-for="(m, k) in p.members" :key="k"><span v-if="k" class="sep">→</span>{{ bareName(m.name) }}</template>
+          </span>
+          <span v-else class="faint mono ellipsis node-server">{{ serverOf(p.outbound) }}</span>
           <span v-if="latencyTest.running.has(p.id)" class="lat" :title="t('测速中')"><span class="probe-bars"><i /><i /><i /><i /></span></span>
           <span v-else-if="latencyTest.waiting.has(p.id)" class="lat lat-none waiting">{{ t('等待中') }}</span>
           <span v-else class="lat" :class="latencyClass(p.latency)" :title="p.latencyError">{{ latencyText(p.latency) }}</span>
           <div class="node-actions" @click.stop @dblclick.stop>
             <button class="btn ghost small icon" :title="t('编辑')" @click="editProfile(p)"><Icon name="edit" :size="14" /></button>
-            <button class="btn ghost small icon" :title="t('复制分享链接')" @click="shareProfile(p)"><Icon name="link" :size="14" /></button>
+            <button class="btn ghost small icon" :disabled="p.type === 'chain'" :title="p.type === 'chain' ? t('链式代理没有分享链接') : t('复制分享链接')" @click="shareProfile(p)"><Icon name="link" :size="14" /></button>
             <button class="btn ghost small icon danger" :title="t('删除')" @click="deleteProfile(p)"><Icon name="trash" :size="14" /></button>
           </div>
         </div>
@@ -311,6 +403,7 @@ const moreItems = computed<MenuItem[]>(() => [
     </main>
 
     <NodeEditor v-model="editorOpen" :profile="editing" :group-id="groupId" />
+    <ChainEditor v-model="chainOpen" :profile="editingChain" :group-id="groupId" />
   </div>
 </template>
 
@@ -472,7 +565,7 @@ const moreItems = computed<MenuItem[]>(() => [
 .node-name {
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   font-weight: 600;
 }
@@ -493,6 +586,39 @@ const moreItems = computed<MenuItem[]>(() => [
 }
 .node-server {
   font-size: 12px;
+}
+.node-route {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.node-route .sep {
+  margin: 0 5px;
+  color: var(--accent);
+  font-weight: 700;
+}
+.node-route.bad {
+  color: var(--bad);
+}
+.badge.chain {
+  gap: 3px;
+  background: var(--accent);
+  color: #fff;
+}
+.badge.bad {
+  gap: 3px;
+  background: color-mix(in srgb, var(--bad) 14%, var(--card));
+  color: var(--bad);
+}
+.node.broken {
+  border-color: color-mix(in srgb, var(--bad) 35%, var(--card));
+}
+.node.broken .node-name {
+  color: var(--text-2);
+}
+/* rows can be dragged to reorder (drag.ts) */
+.list.sortable .node {
+  touch-action: none;
 }
 .node-actions {
   display: flex;

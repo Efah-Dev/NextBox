@@ -15,7 +15,15 @@ export const state = reactive({
   settingsSection: '',
   /** Result of the last update check (设置 → 关于). */
   update: null as UpdateInfo | null,
+  /** the one-time explanation of how countries are found (CountryNotice) */
+  countryNotice: false,
 })
+
+/** Called after nodes were added: the first time, explains where the flags
+ *  come from and lets the user pick (落地 IP / 服务器 IP). */
+export function nodesAdded() {
+  if (state.app && !state.app.settings.countryNoticeShown) state.countryNotice = true
+}
 
 /** Progress of the running latency test (mode '' = none). */
 export const latencyTest = reactive({
@@ -152,10 +160,12 @@ export async function init() {
     latencyTest.done = Math.min(latencyTest.total, latencyTest.done + 1)
     if (latencyTest.current === r.id) latencyTest.current = [...latencyTest.running].pop() ?? 0
     const p = state.profiles.find((x) => x.id === r.id)
-    if (p) {
+    if (!p) return
+    if (!r.skipped) {
       p.latency = r.latency
       p.latencyError = r.error
     }
+    if (r.exit) Object.assign(p, { country: r.exit.country, countryIp: r.exit.ip, countrySource: 'exit', countryAt: Date.now() / 1000 })
   })
   rt.on('latency-done', () => {
     latencyTest.mode = ''

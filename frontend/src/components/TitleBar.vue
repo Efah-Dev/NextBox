@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { t } from '../i18n'
-import { onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import Icon from './Icon.vue'
 import PawLogo from './PawLogo.vue'
 import { state, type Page } from '../state'
@@ -81,6 +81,9 @@ onUnmounted(() => {
   window.removeEventListener('resize', syncMaximised)
 })
 
+const hasUpdate = computed(() => !!(state.update?.app.hasUpdate || state.update?.core.hasUpdate))
+const updateTitle = t('有新版本')
+
 const modeLabel = { system: t('系统代理'), tun: t('TUN 模式'), '': t('已连接') }
 </script>
 
@@ -106,6 +109,7 @@ const modeLabel = { system: t('系统代理'), tun: t('TUN 模式'), '': t('已�
       >
         <Icon :name="t.icon" :size="16" />
         <span>{{ t.label }}</span>
+        <i v-if="t.id === 'settings' && hasUpdate" class="update-dot" :title="updateTitle" />
       </button>
     </nav>
 
@@ -186,6 +190,18 @@ const modeLabel = { system: t('系统代理'), tun: t('TUN 模式'), '': t('已�
   gap: 6px;
   cursor: pointer;
   transition: background 0.18s, color 0.18s, transform 0.1s;
+}
+.update-dot {
+  width: 7px;
+  height: 7px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: #ffd84d;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, #fff);
+}
+.tab.active .update-dot {
+  background: var(--bad);
+  box-shadow: none;
 }
 .tab:hover {
   background: rgba(255, 255, 255, 0.16);

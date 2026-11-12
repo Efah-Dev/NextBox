@@ -39,7 +39,7 @@
   }))
 
   const state = {
-    version: '1.1.0', running: true, runningId: 1, selectedId: 1, currentGroupId: 1,
+    version: '1.2.0', running: true, runningId: 1, selectedId: 1, currentGroupId: 1,
     startedAt: now - (42 * 60 + 18) * 1000, testing: false, proxyMode: 'system', elevated: false,
     coreFound: true, corePath: 'core\\sing-box.exe', dataDir: 'config', settings,
     groups: [

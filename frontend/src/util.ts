@@ -130,11 +130,11 @@ export interface DialogState {
 
 export const dialog = reactive<DialogState>({ open: false, title: '', message: '' })
 
-export function confirmDialog(title: string, message: string, danger = false): Promise<boolean> {
+export function confirmDialog(title: string, message: string, danger = false, confirmText = ''): Promise<boolean> {
   return new Promise((resolve) => {
     Object.assign(dialog, {
       open: true, title, message, danger, inputs: undefined,
-      confirmText: danger ? t('删除') : t('确定'),
+      confirmText: confirmText || (danger ? t('删除') : t('确定')),
       resolve: (v: string[] | null) => resolve(v !== null),
     })
   })

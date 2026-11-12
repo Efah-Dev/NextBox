@@ -20,7 +20,36 @@ type Profile struct {
 	TestedAt     int64  `json:"testedAt,omitempty"`
 	Upload       int64  `json:"upload"`
 	Download     int64  `json:"download"`
+
+	// Chain lists the member nodes of a chain proxy by ID, entry first and
+	// exit last. Type is TypeChain and Outbound is empty for such a profile.
+	Chain []int64 `json:"chain,omitempty"`
+
+	// Where the node is, as last detected: an ISO 3166 code ("JP"), the IP it
+	// was looked up from, which IP that was (CountryExit or CountryServer,
+	// see Settings.CountrySource) and when.
+	Country       string `json:"country,omitempty"`
+	CountryIP     string `json:"countryIp,omitempty"`
+	CountrySource string `json:"countrySource,omitempty"`
+	CountryAt     int64  `json:"countryAt,omitempty"`
 }
+
+// TypeChain is the Type of a chain proxy.
+const TypeChain = "chain"
+
+// Limits on the number of nodes in a chain proxy.
+const (
+	MinChainLength = 2
+	MaxChainLength = 8
+)
+
+// Sources of a node's country (Settings.CountrySource).
+const (
+	CountryExit   = "exit"   // the IP websites see, found through the node
+	CountryServer = "server" // the node server's own IP, looked up locally
+)
+
+func (p *Profile) IsChain() bool { return p.Type == TypeChain }
 
 // Server returns "host:port".
 func (p *Profile) Server() string {
@@ -42,6 +71,9 @@ type Group struct {
 	UpdatedAt int64             `json:"updatedAt,omitempty"`
 	Usage     *SubscriptionInfo `json:"usage,omitempty"`
 	Default   bool              `json:"default,omitempty"` // placeholder group created automatically
+	// ManualOrder is set when the nodes of a subscription were reordered by
+	// hand (dragged or sorted), so that an update can ask before resetting it.
+	ManualOrder bool `json:"manualOrder,omitempty"`
 }
 
 // SubscriptionInfo is parsed from the "subscription-userinfo" response header.
@@ -89,6 +121,9 @@ type Settings struct {
 	SubUpdateHours   int    `json:"subUpdateHours"` // ... once they are older than this
 	AutoCheckUpdate  bool   `json:"autoCheckUpdate"`
 
+	CountrySource      string `json:"countrySource"`      // CountryExit or CountryServer
+	CountryNoticeShown bool   `json:"countryNoticeShown"` // the choice was explained once
+
 	LogLevel       string `json:"logLevel"`
 	LogToFile      bool   `json:"logToFile"`    // also write the log to config/logs
 	LogFileMaxMB   int    `json:"logFileMaxMb"` // start a new file beyond this size
@@ -127,8 +162,9 @@ func DefaultSettings() Settings {
 		TestURL:         "https://www.google.com/generate_204",
 		TestTimeout:     5000,
 		TestConcurrency: 16,
-		SubUserAgent:    "NextBox/1.1.0 (sing-box; ClashMeta compatible)",
+		SubUserAgent:    "NextBox/1.2.0 (sing-box; ClashMeta compatible)",
 		SubUpdateHours:  12,
+		CountrySource:   CountryExit,
 		LogLevel:        "info",
 		LogFileMaxMB:    10,
 		LogKeepDays:     7,
@@ -183,6 +219,9 @@ func (s *Settings) fillDefaults() {
 	}
 	if s.SubUserAgent == "" {
 		s.SubUserAgent = d.SubUserAgent
+	}
+	if s.CountrySource != CountryServer {
+		s.CountrySource = CountryExit
 	}
 	if s.SubUpdateHours <= 0 {
 		s.SubUpdateHours = d.SubUpdateHours

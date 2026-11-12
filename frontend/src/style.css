@@ -32,7 +32,7 @@
   --radius: 8px;
   --radius-sm: 6px;
   --titlebar: 50px;
-  --font: 'Noto Sans SC Variable', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --font: 'Twemoji Country Flags', 'Noto Sans SC Variable', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
   --mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, 'Microsoft YaHei UI', monospace;
 
   color-scheme: light;
@@ -570,4 +570,25 @@ body {
 }
 .empty svg {
   opacity: 0.5;
+}
+
+/* ---------------------------------------------------------------- drag to reorder (drag.ts) */
+
+body.sorting,
+body.sorting * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+.sort-shift {
+  transition: translate 0.2s cubic-bezier(0.2, 0.8, 0.3, 1) !important;
+}
+.sort-lifted {
+  z-index: 5;
+  transition: box-shadow 0.15s, border-color 0.15s !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 28%, transparent), 0 2px 6px rgba(17, 52, 110, 0.1) !important;
+}
+.sort-settling,
+.sort-settling * {
+  transition: none !important;
 }

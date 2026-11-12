@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"nextbox/internal/config"
+	"nextbox/internal/geo"
 	"nextbox/internal/store"
 )
 
@@ -22,6 +23,11 @@ type LatencyResult struct {
 	ID      int64  `json:"id"`
 	Latency int    `json:"latency"` // -1 = failed
 	Error   string `json:"error,omitempty"`
+	// Skipped is set when the node cannot be measured this way (a chain
+	// proxy in a TCP test); its previous result stands.
+	Skipped bool `json:"skipped,omitempty"`
+	// Exit is where the node's traffic leaves, when it was looked up.
+	Exit *geo.Location `json:"exit,omitempty"`
 }
 
 // Progress receives the events of a latency test: Start when a node's
@@ -29,6 +35,11 @@ type LatencyResult struct {
 type Progress struct {
 	Start  func(id int64)
 	Result func(LatencyResult)
+	// Member looks up the members of chain proxies (URL test only).
+	Member func(id int64) (store.Profile, bool)
+	// Locate reports whether to also look up where a node's traffic leaves
+	// (URL test only); nil means never.
+	Locate func(id int64) bool
 }
 
 // TestURL measures real latency (HTTP request through the proxy) for nodes
@@ -62,7 +73,7 @@ func testBatch(ctx context.Context, bin, workDir string, s store.Settings, nodes
 		return err
 	}
 	api := NewAPI("127.0.0.1:"+strconv.Itoa(apiPort), RandomSecret())
-	cfg, err := config.BuildTest(s, nodes, api.Addr, api.Secret, proxyPort)
+	cfg, err := config.BuildTest(s, nodes, prog.Member, api.Addr, api.Secret, proxyPort)
 	if err != nil {
 		return err
 	}
@@ -85,10 +96,15 @@ func testBatch(ctx context.Context, bin, workDir string, s store.Settings, nodes
 			defer func() { <-sem; wg.Done() }()
 			prog.Start(n.ID)
 			proxy := &url.URL{Scheme: "http", User: url.UserPassword(config.TestUser(n.ID), api.Secret), Host: proxyAddr}
-			ms, err := measureRTT(ctx, proxy, s.TestURL, time.Duration(s.TestTimeout)*time.Millisecond)
+			timeout := time.Duration(s.TestTimeout) * time.Millisecond
+			ms, err := measureRTT(ctx, proxy, s.TestURL, timeout)
 			r := LatencyResult{ID: n.ID, Latency: ms}
 			if err != nil {
 				r.Latency, r.Error = -1, err.Error()
+			} else if prog.Locate != nil && prog.Locate(n.ID) {
+				if loc, err := locate(ctx, proxy, timeout); err == nil {
+					r.Exit = &loc
+				}
 			}
 			prog.Result(r)
 		}(n)
@@ -137,6 +153,13 @@ func measureRTT(ctx context.Context, proxy *url.URL, testURL string, timeout tim
 	return max(1, int(time.Since(start).Milliseconds())), nil
 }
 
+// locate asks where requests sent through the proxy come from.
+func locate(ctx context.Context, proxy *url.URL, timeout time.Duration) (geo.Location, error) {
+	tr := &http.Transport{Proxy: http.ProxyURL(proxy), ForceAttemptHTTP2: true, TLSHandshakeTimeout: timeout}
+	defer tr.CloseIdleConnections()
+	return geo.Trace(ctx, &http.Client{Transport: tr, Timeout: timeout})
+}
+
 // simplifyErr strips Go's "Get \"url\": proxyconnect ..." wrapping.
 func simplifyErr(err error) error {
 	var ue *url.Error
@@ -162,6 +185,11 @@ func TCPPing(ctx context.Context, s store.Settings, nodes []store.Profile, p Pro
 		go func(n store.Profile) {
 			defer func() { <-sem; wg.Done() }()
 			p.Start(n.ID)
+			if n.IsChain() {
+				// only the first hop could be reached directly, which says nothing
+				p.Result(LatencyResult{ID: n.ID, Skipped: true})
+				return
+			}
 			d := net.Dialer{Timeout: time.Duration(s.TestTimeout) * time.Millisecond}
 			start := time.Now()
 			conn, err := d.DialContext(ctx, "tcp", n.Server())
