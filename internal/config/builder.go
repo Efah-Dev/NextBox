@@ -9,7 +9,6 @@ import (
 	"nextbox/internal/i18n"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -38,7 +37,18 @@ type Input struct {
 	// SkipMissingRuleSets leaves out the rules that need a rule-set file which
 	// is not on disk, instead of failing with *MissingRuleSetsError.
 	SkipMissingRuleSets bool
+	// Policies are the policy groups the rules send traffic to, with their
+	// member nodes (see UsedPolicies). Rules naming a policy group that is
+	// missing here, or has no usable member, use the selected node instead.
+	Policies []PolicyInput
 }
+
+type PolicyInput struct {
+	Policy  store.Policy
+	Members []store.Profile
+}
+
+const TagFakeIP = "dns-fakeip"
 
 // Build generates the main config. It returns *MissingRuleSetsError when a
 // required rule-set file has not been downloaded yet (see SkipMissingRuleSets).
@@ -47,39 +57,48 @@ func Build(in Input) (map[string]any, error) {
 	if in.Node == nil && s.RouteMode != "direct" {
 		return nil, errors.New(i18n.T("请先选择一个节点"))
 	}
-	rules := collectRules(s)
-	if missing := MissingRuleSets(in.RuleSetDir, rules.ruleSets()); len(missing) > 0 {
+	entries := Entries(s)
+	if missing := MissingRuleSets(in.RuleSetDir, RuleSets(entries)); len(missing) > 0 {
 		if !in.SkipMissingRuleSets {
 			return nil, &MissingRuleSetsError{Names: missing}
 		}
-		rules = rules.without(missing)
+		entries = withoutSets(entries, missing)
 	}
 
 	// ---- outbounds ----
 	outbounds := []any{}
 	hasProxy := in.Node != nil
+	policyTags := map[int64]string{}
 	if hasProxy {
 		// "proxy" is a selector over the loaded nodes: rules and DNS refer to
 		// it, and switching nodes only changes what it points at.
-		nodes := in.Switchable()
-		tags := NodeTags(nodes)
+		all, tags, ptags := in.Tags()
 		used := map[string]bool{TagProxy: true, TagDirect: true}
 		for _, tag := range tags {
 			used[tag] = true
 		}
-		names := make([]string, 0, len(nodes))
+		for _, tag := range ptags {
+			used[tag] = true
+		}
+		ok := map[int64]bool{}
 		var nodeOutbounds []any
-		for _, n := range nodes {
+		for _, n := range all {
 			obs, err := Expand(n, tags[n.ID], in.Member, used)
 			if err != nil {
 				if n.ID == in.Node.ID {
 					return nil, err
 				}
-				continue // another node of the group that cannot be used: leave it out
+				continue // a node that cannot be used: leave it out
 			}
-			names = append(names, tags[n.ID])
+			ok[n.ID] = true
 			for _, ob := range obs {
 				nodeOutbounds = append(nodeOutbounds, ob)
+			}
+		}
+		var names []string
+		for _, n := range in.Switchable() {
+			if ok[n.ID] {
+				names = append(names, tags[n.ID])
 			}
 		}
 		outbounds = append(outbounds, map[string]any{
@@ -88,9 +107,54 @@ func Build(in Input) (map[string]any, error) {
 			"outbounds": names,
 			"default":   tags[in.Node.ID],
 		})
+		for _, pi := range in.Policies {
+			var members []string
+			def := ""
+			for _, m := range pi.Members {
+				if ok[m.ID] {
+					members = append(members, tags[m.ID])
+					if m.ID == pi.Policy.Selected {
+						def = tags[m.ID]
+					}
+				}
+			}
+			if len(members) == 0 {
+				continue // its rules fall back to the selected node
+			}
+			tag := ptags[pi.Policy.ID]
+			policyTags[pi.Policy.ID] = tag
+			if pi.Policy.Mode == store.PolicySelect {
+				if def == "" {
+					def = members[0]
+				}
+				outbounds = append(outbounds, map[string]any{"type": "selector", "tag": tag, "outbounds": members, "default": def})
+			} else {
+				outbounds = append(outbounds, map[string]any{
+					"type": "urltest", "tag": tag, "outbounds": members,
+					"url": s.TestURL, "interval": "10m", "tolerance": 50, "idle_timeout": "30m",
+				})
+			}
+		}
 		outbounds = append(outbounds, nodeOutbounds...)
 	}
 	outbounds = append(outbounds, map[string]any{"type": "direct", "tag": TagDirect})
+
+	// where an entry's traffic goes: an outbound tag, or "" to block it
+	outboundOf := func(target string) string {
+		switch target {
+		case store.TargetBlock:
+			return ""
+		case store.TargetDirect:
+			return TagDirect
+		}
+		if !hasProxy {
+			return TagDirect
+		}
+		if tag, ok := policyTags[store.TargetPolicy(target)]; ok {
+			return tag
+		}
+		return TagProxy
+	}
 
 	// ---- dns ----
 	directDNS, err := parseDNS(s.DirectDNS, TagDNSDirect)
@@ -113,22 +177,50 @@ func Build(in Input) (map[string]any, error) {
 		dnsServers = append([]any{remote}, dnsServers...)
 		dnsFinal = TagDNSRemote
 	}
+	// FakeIP only makes sense when the core sees the DNS queries (TUN)
+	fakeIP := s.TunEnabled && s.TunFakeIP && dnsFinal == TagDNSRemote
+	if fakeIP {
+		dnsServers = append(dnsServers, map[string]any{
+			"type": "fakeip", "tag": TagFakeIP,
+			"inet4_range": "198.18.0.0/15", "inet6_range": "fc00::/18",
+		})
+	}
 	dnsRules := []any{}
-	if r := rules.block.domainMatcher(); r != nil {
-		r["action"] = "reject"
-		dnsRules = append(dnsRules, r)
+	for _, e := range entries {
+		if e.Target == store.TargetBlock {
+			if r := e.dnsRule(); r != nil {
+				r["action"] = "reject"
+				dnsRules = append(dnsRules, r)
+			}
+		}
+	}
+	if fakeIP {
+		if excl := fakeIPExclusions(s.FakeIPExclude); len(excl) > 0 {
+			dnsRules = append(dnsRules, map[string]any{"domain_suffix": excl, "server": TagDNSDirect})
+		}
 	}
 	if dnsFinal == TagDNSRemote {
-		if r := rules.proxy.domainMatcher(); r != nil {
-			r["server"] = TagDNSRemote
+		for _, e := range entries {
+			if e.Target == store.TargetBlock {
+				continue
+			}
+			r := e.dnsRule()
+			if r == nil {
+				continue
+			}
+			switch {
+			case outboundOf(e.Target) == TagDirect:
+				r["server"] = TagDNSDirect
+			case fakeIP:
+				r["server"] = TagFakeIP
+				r["query_type"] = []string{"A", "AAAA"}
+			default:
+				r["server"] = TagDNSRemote
+			}
 			dnsRules = append(dnsRules, r)
 		}
-		if r := rules.direct.domainMatcher(); r != nil {
-			r["server"] = TagDNSDirect
-			dnsRules = append(dnsRules, r)
-		}
-		if rules.hasBuiltin("geosite-cn") {
-			dnsRules = append(dnsRules, map[string]any{"rule_set": []string{"geosite-cn"}, "server": TagDNSDirect})
+		if fakeIP {
+			dnsRules = append(dnsRules, map[string]any{"query_type": []string{"A", "AAAA"}, "server": TagFakeIP})
 		}
 	}
 	strategy := "ipv4_only"
@@ -180,28 +272,29 @@ func Build(in Input) (map[string]any, error) {
 		routeRules = append(routeRules, map[string]any{"action": "sniff"})
 	}
 	routeRules = append(routeRules, map[string]any{"protocol": "dns", "action": "hijack-dns"})
-	if r := rules.block.matcher(); r != nil {
-		r["action"] = "reject"
+	privateDone := false
+	for _, e := range entries {
+		// ad blocking comes before LAN addresses, everything else after
+		if e.Source != "ads" && !privateDone {
+			routeRules = append(routeRules, map[string]any{"ip_is_private": true, "outbound": TagDirect})
+			privateDone = true
+		}
+		r := e.routeRule()
+		if r == nil {
+			continue
+		}
+		if ob := outboundOf(e.Target); ob == "" {
+			r["action"] = "reject"
+		} else {
+			r["outbound"] = ob
+		}
 		routeRules = append(routeRules, r)
 	}
-	routeRules = append(routeRules, map[string]any{"ip_is_private": true, "outbound": TagDirect})
-	if final == TagProxy {
-		if r := rules.proxy.matcher(); r != nil {
-			r["outbound"] = TagProxy
-			routeRules = append(routeRules, r)
-		}
-		if r := rules.direct.matcher(); r != nil {
-			r["outbound"] = TagDirect
-			routeRules = append(routeRules, r)
-		}
-		for _, name := range []string{"geosite-cn", "geoip-cn"} {
-			if rules.hasBuiltin(name) {
-				routeRules = append(routeRules, map[string]any{"rule_set": []string{name}, "outbound": TagDirect})
-			}
-		}
+	if !privateDone {
+		routeRules = append(routeRules, map[string]any{"ip_is_private": true, "outbound": TagDirect})
 	}
 	ruleSets := []any{}
-	for _, name := range rules.ruleSets() {
+	for _, name := range RuleSets(entries) {
 		ruleSets = append(ruleSets, map[string]any{
 			"type":   "local",
 			"tag":    name,
@@ -210,6 +303,10 @@ func Build(in Input) (map[string]any, error) {
 		})
 	}
 
+	cacheFile := map[string]any{"enabled": true, "path": "cache.db"}
+	if fakeIP {
+		cacheFile["store_fakeip"] = true
+	}
 	cfg := map[string]any{
 		"log":       map[string]any{"level": s.LogLevel, "timestamp": true},
 		"dns":       dns,
@@ -220,7 +317,7 @@ func Build(in Input) (map[string]any, error) {
 			"rule_set":                ruleSets,
 			"final":                   final,
 			"auto_detect_interface":   true,
-			"find_process":            s.FindProcess || rules.usesProcess(),
+			"find_process":            s.FindProcess || usesProcess(entries),
 			"default_domain_resolver": TagDNSDirect,
 		},
 		"experimental": map[string]any{
@@ -228,10 +325,54 @@ func Build(in Input) (map[string]any, error) {
 				"external_controller": in.ClashAPI,
 				"secret":              in.Secret,
 			},
-			"cache_file": map[string]any{"enabled": true, "path": "cache.db"},
+			"cache_file": cacheFile,
 		},
 	}
 	return cfg, nil
+}
+
+func fakeIPExclusions(text string) []string {
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		if line = strings.TrimPrefix(strings.TrimSpace(line), "."); line != "" && !strings.HasPrefix(line, "#") {
+			out = append(out, strings.ToLower(line))
+		}
+	}
+	return out
+}
+
+// Tags returns every node the config loads (the switchable ones first, then
+// the members of policy groups), their outbound tags, and the tags of the
+// policy groups. Switchable nodes get the same tags as from NodeTags alone.
+func (in Input) Tags() (all []store.Profile, nodeTags, policyTags map[int64]string) {
+	all = in.Switchable()
+	seen := map[int64]bool{}
+	for _, n := range all {
+		seen[n.ID] = true
+	}
+	for _, pi := range in.Policies {
+		for _, m := range pi.Members {
+			if !seen[m.ID] {
+				seen[m.ID] = true
+				all = append(all, m)
+			}
+		}
+	}
+	nodeTags = NodeTags(all)
+	used := map[string]bool{TagProxy: true, TagDirect: true}
+	for _, t := range nodeTags {
+		used[t] = true
+	}
+	policyTags = map[int64]string{}
+	for _, pi := range in.Policies {
+		tag := strings.TrimSpace(pi.Policy.Name)
+		for tag == "" || used[tag] {
+			tag = strings.TrimSpace(tag + " #" + strconv.FormatInt(pi.Policy.ID, 10))
+		}
+		used[tag] = true
+		policyTags[pi.Policy.ID] = tag
+	}
+	return all, nodeTags, policyTags
 }
 
 // Switchable returns the nodes the config is built with: the selected node
@@ -435,210 +576,6 @@ func parseDNS(addr, tag string) (map[string]any, error) {
 		server["path"] = u.Path
 	}
 	return server, nil
-}
-
-// ---- user rules ----
-
-// ruleList is a parsed block of user rules, one per line:
-//
-//	example.com / suffix:example.com   domain suffix
-//	domain:example.com / full:...      exact domain
-//	keyword:google                     domain keyword
-//	regex:^ads?\.                      domain regex
-//	geosite:netflix / geoip:jp         remote rule-set (auto downloaded)
-//	1.2.3.0/24 / ip:1.2.3.4            IP CIDR
-//	process:chrome.exe                 process name
-type ruleList struct {
-	domain, suffix, keyword, regex, cidr, process, sets []string
-}
-
-var ruleKinds = map[string]bool{
-	"domain": true, "full": true, "suffix": true, "domain_suffix": true,
-	"keyword": true, "regex": true, "regexp": true, "geosite": true, "geoip": true,
-	"ip": true, "ip_cidr": true, "process": true,
-}
-
-func parseRuleLines(text string) ruleList {
-	var r ruleList
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		kind, value, ok := strings.Cut(line, ":")
-		if !ok || !ruleKinds[strings.ToLower(kind)] {
-			// no prefix (also covers IPv6 addresses, which contain ':')
-			kind, value = "", line
-		}
-		value = strings.TrimSpace(value)
-		switch strings.ToLower(kind) {
-		case "domain", "full":
-			r.domain = append(r.domain, value)
-		case "suffix", "domain_suffix":
-			r.suffix = append(r.suffix, strings.TrimPrefix(value, "."))
-		case "keyword":
-			r.keyword = append(r.keyword, value)
-		case "regex", "regexp":
-			r.regex = append(r.regex, value)
-		case "geosite":
-			r.sets = append(r.sets, "geosite-"+strings.ToLower(value))
-		case "geoip":
-			r.sets = append(r.sets, "geoip-"+strings.ToLower(value))
-		case "ip", "ip_cidr":
-			r.cidr = append(r.cidr, normalizeCIDR(value))
-		case "process":
-			r.process = append(r.process, value)
-		default:
-			if _, _, err := net.ParseCIDR(value); err == nil || net.ParseIP(value) != nil {
-				r.cidr = append(r.cidr, normalizeCIDR(value))
-			} else {
-				r.suffix = append(r.suffix, strings.TrimPrefix(value, "."))
-			}
-		}
-	}
-	return r
-}
-
-func normalizeCIDR(v string) string {
-	if ip := net.ParseIP(v); ip != nil {
-		if ip.To4() != nil {
-			return v + "/32"
-		}
-		return v + "/128"
-	}
-	return v
-}
-
-// matcher returns a logical-or route rule matching any entry, or nil.
-func (r ruleList) matcher() map[string]any {
-	m := r.domainMatcherMap()
-	if len(r.cidr) > 0 {
-		m["ip_cidr"] = r.cidr
-	}
-	if len(r.process) > 0 {
-		m["process_name"] = r.process
-	}
-	if len(r.sets) > 0 {
-		m["rule_set"] = r.sets
-	}
-	if len(m) == 0 {
-		return nil
-	}
-	return m
-}
-
-// domainMatcher is used in DNS rules, which only care about domains.
-func (r ruleList) domainMatcher() map[string]any {
-	m := r.domainMatcherMap()
-	var geosite []string
-	for _, s := range r.sets {
-		if strings.HasPrefix(s, "geosite-") {
-			geosite = append(geosite, s)
-		}
-	}
-	if len(geosite) > 0 {
-		m["rule_set"] = geosite
-	}
-	if len(m) == 0 {
-		return nil
-	}
-	return m
-}
-
-func (r ruleList) domainMatcherMap() map[string]any {
-	m := map[string]any{}
-	if len(r.domain) > 0 {
-		m["domain"] = r.domain
-	}
-	if len(r.suffix) > 0 {
-		m["domain_suffix"] = r.suffix
-	}
-	if len(r.keyword) > 0 {
-		m["domain_keyword"] = r.keyword
-	}
-	if len(r.regex) > 0 {
-		m["domain_regex"] = r.regex
-	}
-	return m
-}
-
-type userRules struct {
-	block, proxy, direct ruleList
-	builtin              []string
-}
-
-func collectRules(s store.Settings) userRules {
-	u := userRules{
-		block:  parseRuleLines(s.BlockRules),
-		proxy:  parseRuleLines(s.ProxyRules),
-		direct: parseRuleLines(s.DirectRules),
-	}
-	if s.BlockAds {
-		u.block.sets = append(u.block.sets, "geosite-category-ads-all")
-	}
-	if s.RouteMode == "rule" {
-		u.builtin = []string{"geosite-cn", "geoip-cn"}
-	}
-	if s.RouteMode == "direct" {
-		// everything goes direct, only block rules matter
-		u.proxy, u.direct = ruleList{}, ruleList{}
-	}
-	return u
-}
-
-func (u userRules) ruleSets() []string {
-	seen := map[string]bool{}
-	for _, list := range [][]string{u.builtin, u.block.sets, u.proxy.sets, u.direct.sets} {
-		for _, s := range list {
-			seen[s] = true
-		}
-	}
-	out := make([]string, 0, len(seen))
-	for s := range seen {
-		out = append(out, s)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func (u userRules) hasBuiltin(name string) bool {
-	for _, s := range u.builtin {
-		if s == name {
-			return true
-		}
-	}
-	return false
-}
-
-// without drops every reference to the given rule-sets.
-func (u userRules) without(names []string) userRules {
-	drop := map[string]bool{}
-	for _, n := range names {
-		drop[n] = true
-	}
-	keep := func(list []string) []string {
-		var out []string
-		for _, s := range list {
-			if !drop[s] {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	u.builtin = keep(u.builtin)
-	u.block.sets, u.proxy.sets, u.direct.sets = keep(u.block.sets), keep(u.proxy.sets), keep(u.direct.sets)
-	return u
-}
-
-// usesProcess reports whether any rule matches by process name, which needs
-// the core to look up the owning process of every connection.
-func (u userRules) usesProcess() bool {
-	return len(u.block.process)+len(u.proxy.process)+len(u.direct.process) > 0
-}
-
-// RequiredRuleSets lists the rule-sets the current settings need.
-func RequiredRuleSets(s store.Settings) []string {
-	return collectRules(s).ruleSets()
 }
 
 type MissingRuleSetsError struct{ Names []string }

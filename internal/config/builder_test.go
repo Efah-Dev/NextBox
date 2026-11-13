@@ -208,7 +208,8 @@ func TestChainConfigAccepted(t *testing.T) {
 func TestSkipMissingRuleSets(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "geoip-cn.srs"), []byte("x"), 0o644)
-	s := store.DefaultSettings() // rule mode
+	s := store.DefaultSettings()
+	s.RouteMode = "rule"
 	s.BlockAds = true
 	node := sampleProfiles(t)[0]
 	in := Input{Settings: s, Node: &node, ClashAPI: "127.0.0.1:9090", Secret: "x", RuleSetDir: dir}

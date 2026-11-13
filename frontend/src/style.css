@@ -4,9 +4,9 @@
   --accent: #f472b6;
   --accent-hover: color-mix(in srgb, var(--accent) 88%, white);
   --accent-press: color-mix(in srgb, var(--accent) 85%, black);
-  --accent-soft: color-mix(in srgb, var(--accent) 10%, white);
-  --accent-soft-2: color-mix(in srgb, var(--accent) 18%, white);
-  --accent-line: color-mix(in srgb, var(--accent) 35%, white);
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, var(--card));
+  --accent-soft-2: color-mix(in srgb, var(--accent) 18%, var(--card));
+  --accent-line: color-mix(in srgb, var(--accent) 35%, var(--card));
 
   --bg: color-mix(in srgb, var(--accent) 6%, #f4f6fa);
   --bg-deco-1: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -39,9 +39,9 @@
 }
 
 :root.dark {
-  --accent-soft: color-mix(in srgb, var(--accent) 16%, #1b2230);
-  --accent-soft-2: color-mix(in srgb, var(--accent) 26%, #1b2230);
-  --accent-line: color-mix(in srgb, var(--accent) 45%, #1b2230);
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, var(--card));
+  --accent-soft-2: color-mix(in srgb, var(--accent) 26%, var(--card));
+  --accent-line: color-mix(in srgb, var(--accent) 45%, var(--card));
   --bg: #121722;
   --bg-deco-1: color-mix(in srgb, var(--accent) 14%, transparent);
   --bg-deco-2: color-mix(in srgb, #6d5cff 10%, transparent);
@@ -591,4 +591,11 @@ body.sorting * {
 .sort-settling,
 .sort-settling * {
   transition: none !important;
+}
+
+/* a card holding an open popover (the colour panel) stays above the cards
+   after it, which are stacking contexts of their own */
+.card:has(.picker-root.open) {
+  position: relative;
+  z-index: 6;
 }

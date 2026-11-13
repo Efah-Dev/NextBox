@@ -42,15 +42,20 @@ with a rewritten launcher-style interface, the current sing-box configuration fo
 - 🚩 **Flags and country search**: a flag in front of every node, by exit IP by default (checked during URL tests) or by server IP; searching "Hong Kong" or "香港" finds HK, 🇭🇰 and Hong Kong nodes alike
 - ⛓️ **Chain proxies**: send traffic through 2 to 8 nodes in a row, e.g. an airport node as the entry and your own VPS as the exit; members come from any group, can be reordered by dragging, and the whole chain can be tested before saving
 - 🔀 **Switch nodes without dropping connections**: the nodes of a group are loaded into the core together, so switching does not restart it and open connections (a running download, for example) are not cut
-- ⚡ **Latency test**: URL test (round trip on an established connection, same method as NekoBox) and TCP test; configurable URL, timeout and concurrency
-- 🧭 **Routing**: rule-based (bypass mainland China) / global / direct; visual rule editor (site categories, domains, IPs, programs); ad blocking
-- 🖥️ **System proxy**: set automatically on connect, including dial-up (PPPoE) and Windows VPN connections; restored on disconnect, exit, core crash and Windows logoff / shutdown
-- 🛡️ **TUN mode**: captures all traffic (requires administrator; one-click "Restart as administrator")
+- ⚡ **Latency test**: URL test (round trip on an established connection, same method as NekoBox) and TCP test; a bolt button on every node tests just that node; protocols over UDP (Hysteria2, TUIC …) and chain proxies always use a URL test; configurable URL, timeout and concurrency
+- 🧭 **Routing**: global (the default, nothing to set up) / rule-based (bypasses mainland China by default) / direct. Rule-based mode adds scenario switches (AI services, streaming, game downloads direct …) and your own rules, checked in order (site categories, domains, IPs, programs), each sending traffic to the current node, direct, blocked or a policy group; drag to reorder or edit as text; the *Rule tester* shows which rule an address matches and where it goes
+- 🧩 **Policy groups**: group nodes by region, name keywords or by hand, use the fastest automatically or pick one, and send different sites through different groups (YouTube via Japan, Google via the US); groups by region or keyword pick up new nodes after subscription updates
+- 🚫 **Ad blocking**: works in every routing mode
+- 📍 **Exit info**: once connected, the home page shows the node's flag, exit IP (masked by default) and a status light, checked again regularly
+- 🖥️ **System proxy**: set automatically on connect, including dial-up (PPPoE) and Windows VPN connections; restored on disconnect, exit and core crash; cleared first thing at Windows logoff / shutdown, and cleared at the next logon if NextBox was killed before it could
+- 🚀 **Autostart**: Settings shows whether Windows will really start NextBox; a disabled entry, a moved program and similar problems are explained with a one-click fix; with TUN mode NextBox starts through a scheduled task as administrator; optionally connects to the last node after starting with Windows
+- 🛡️ **TUN mode**: captures all traffic (requires administrator; one-click "Restart as administrator"); optional FakeIP with an editable exclusion list
+- 💾 **Backup & encryption**: export / import nodes and subscriptions, routing rules and other settings separately, encrypted with a password (AES-256, the same format as the Android version); the node list on disk can be encrypted too (tied to your Windows account, or with a start-up password); the core configuration is no longer written to disk
 - 🌍 **DNS**: remote DNS through the proxy, direct DNS locally; UDP / TCP / DoT / DoQ / DoH / DoH3
 - 📌 **Tray**: keeps running in the tray after closing the window; start / stop, switch node, route mode and TUN from the menu. Green dot = system proxy, red dot = TUN
 - 📜 **Connections & logs**: live connection list (target, process, rule, speed); log viewer with filters; optional log files with size limit and retention
 - 🔄 **Updates**: check for new versions of NextBox and the sing-box core in Settings → About, compared with GitHub Releases; optional automatic check (off by default). It only notifies, nothing is downloaded
-- 🎨 **Look & feel**: light / dark / follow system, custom accent color (pink by default), Noto Sans SC font
+- 🎨 **Look & feel**: light / dark / follow system; adjustable brightness of the light theme and depth of the dark theme (down to black); preset accent colors or a color panel (pink by default); Noto Sans SC font
 - 🌐 **Languages**: 简体中文, 繁體中文, English
 
 ## 📦 Download
@@ -67,7 +72,8 @@ and on up-to-date Windows 10).
 
 > Switching nodes without dropping connections, automatic subscription updates, the update check and the
 > system proxy for dial-up connections are available from v1.1.0 on; chain proxies, drag to reorder and
-> flags with country search from v1.2.0 on.
+> flags with country search from v1.2.0 on; policy groups, the new routing rules, backup & encryption, FakeIP
+> and the autostart check from v2.0.0 on.
 
 ## 🚀 Quick start
 
@@ -99,10 +105,14 @@ Everything lives next to `NextBox.exe` (portable); to move NextBox to another PC
 
 | Path | Contents |
 |---|---|
-| `config/profiles.json` | Groups, subscriptions and nodes |
+| `config/profiles.json` | Groups, subscriptions, nodes and policy groups (optionally encrypted) |
 | `config/settings.json` | Settings |
 | `config/rule-set/` | Downloaded geosite / geoip rule-sets |
 | `config/logs/` | Log files (only when *Log to file* is enabled) |
+| `config/cache/` | Temporary files of latency tests, emptied afterwards |
+
+With *Encrypt nodes and subscriptions* set to *Tied to your Windows account*, `profiles.json` only opens under
+this Windows account on this PC. Export a backup in Settings → Data & backup before moving to another PC.
 
 ## ❓ FAQ
 
@@ -117,7 +127,7 @@ group or to an edited node, or changing settings such as the route mode, still r
 **Do rule-sets need a download?** The default *Local built-in* mirror uses the rule-sets shipped inside
 the program (bypass China domains and China IPs), so no network is needed. Other rule-sets (ad blocking,
 geosite:xxx) are downloaded on first use; a failure or timeout is only reported in the log, the connection
-still starts and just skips those rules. To retry, pick a mirror in Settings → Routing → *Rule-set mirror*
+still starts and just skips those rules. To retry, pick a mirror in Settings → Routing rules → *Rule-set mirror*
 and click *Update rule-sets*.
 
 **How are the flags decided?** Choose in Settings → Subscriptions & tests → *Node location*. *Exit IP* asks
@@ -146,7 +156,30 @@ list, for both connections and DNS. Ads served from the same domain as the conte
 **The update check fails.** While disconnected it reaches GitHub directly, which fails where GitHub is not
 reachable; connect first and check again.
 
-**Port 2030 is already in use.** Change the mixed (HTTP + SOCKS5) port in Settings → Inbound.
+**Port 2030 is already in use.** Change the mixed (HTTP + SOCKS5) port in Settings → Proxy port.
+
+**Global or rule-based?** Global sends all traffic through the current node; there is nothing to set up and
+your own rules do not apply. Rule-based sends mainland China sites and IPs direct and the rest through the
+proxy; turn on scenarios or add rules of your own on top.
+
+**How do I send different sites through different nodes?** Create a group in Settings → Policy groups (e.g.
+by region "Japan", fastest automatically), then add a rule in Settings → Routing rules → *My rules*, e.g. site
+category YouTube → Japan auto. Policy groups only apply in rule-based mode.
+
+**Can I use a backup on my phone?** A backup from Settings → Data & backup → *Export* imports directly in
+NextBox for Android, and Android backups import here. A backup from another system brings its nodes, routing
+rules and shared settings; ports, TUN and the like stay as they are.
+
+**Which encryption should I pick?** *Tied to your Windows account* needs no password and autostart keeps
+working, the right choice for most people. *Start-up password* asks for the password every time NextBox
+opens (when started with Windows it waits on the unlock screen); a forgotten password cannot be recovered.
+
+**Autostart does not work.** Settings → General → *Start with Windows* shows the result of a check. A
+disabled entry, a moved program or TUN mode without administrator rights are explained; click the fix button.
+
+**What is FakeIP?** TUN mode only: proxied domains first get a placeholder 198.18.x.x address, which makes
+first connections faster and keeps DNS from leaking. After disconnecting, a few programs may keep the
+placeholder and fail until restarted; domains with problems can be added to the exclusion list.
 
 ## 🛠️ Building from source
 
@@ -186,6 +219,8 @@ For live development use `wails dev`. Every push and pull request is tested and 
 ```
 main.go, app.go, support.go   Wails entry point and the API exposed to the UI
 background.go                 Automatic subscription updates, update check
+policy.go, backup.go          Policy groups and the rule tester, backups and encryption
+exit.go, startup.go           Exit IP checks; autostart check, cleanup at shutdown
 tray.go                       System tray
 cmd/genicon/                  Generates the application icons
 internal/
@@ -195,12 +230,14 @@ internal/
   config/    sing-box 1.12+ configuration builder
   core/      Core process, Clash API client, latency tests
   update/    Looks up the latest GitHub release
+  geo/       Exit IP, IP database, guessing the region from node names
+  vault/     Encryption of backups and local data (AES-256-GCM, same format as Android)
   icon/      Pink paw icon renderer (app + tray)
   i18n/      Backend translations (shares the dictionaries in frontend/src/i18n)
   logfile/   Log files with rotation and retention
   sys/       System proxy, elevation, autostart (Windows)
 frontend/src/
-  views/        Home, Nodes, Connections, Logs, Settings
+  views/        Home, Nodes, Connections, Logs, Settings (settings/ holds the sections)
   components/   Title bar, cards, dialogs, rule editor, …
   i18n/         en.json (Chinese → English), zh-TW.json (Simplified → Traditional)
 scripts/build-core.ps1   Builds sing-box from source

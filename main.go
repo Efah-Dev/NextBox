@@ -3,10 +3,13 @@ package main
 import (
 	"embed"
 	"log"
+	"net"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
+	"nextbox/internal/geo"
 	"nextbox/internal/i18n"
 	"nextbox/internal/sys"
 
@@ -29,7 +32,12 @@ var i18nEN []byte
 //go:embed frontend/src/i18n/zh-TW.json
 var i18nTW []byte
 
-const Version = "1.2.0"
+// Country names in node names, shared with the UI (see internal/geo).
+//
+//go:embed frontend/src/places.json
+var placesJSON []byte
+
+const Version = "2.0.0"
 
 func main() {
 	startMinimised := false
@@ -42,6 +50,11 @@ func main() {
 			}
 		case arg == "--minimized":
 			startMinimised = true
+		case strings.HasPrefix(arg, "--restore-proxy="):
+			// RunOnce safety net (see sys.SetProxyCleanup): the last session
+			// ended without NextBox removing its system proxy.
+			restoreProxy(strings.TrimPrefix(arg, "--restore-proxy="))
+			return
 		}
 	}
 
@@ -50,6 +63,10 @@ func main() {
 	}
 
 	app := NewApp()
+	app.autoStarted = startMinimised
+	if err := geo.LoadPlaces(placesJSON); err != nil {
+		log.Println("places:", err)
+	}
 
 	err := wails.Run(&options.App{
 		Title:            "NextBox",
@@ -78,4 +95,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+// restoreProxy removes a system proxy pointing at addr, unless something
+// listens there again (NextBox may already be running and connected).
+func restoreProxy(addr string) {
+	if conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond); err == nil {
+		conn.Close()
+		return
+	}
+	sys.ClearSystemProxy(addr)
 }

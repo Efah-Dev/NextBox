@@ -6,6 +6,11 @@ export interface Settings {
   theme: 'auto' | 'light' | 'dark'
   accentColor: string
   language: string
+  /** how far the light theme is dimmed, 0-100 (0 = brightest) */
+  lightLevel: number
+  /** how deep the dark theme goes, 0-100 (60 = classic, 100 = black) */
+  darkLevel: number
+  recentColors?: string[]
   listenAddress: string
   mixedPort: number
   allowLan: boolean
@@ -14,11 +19,12 @@ export interface Settings {
   tunStack: string
   tunStrictRoute: boolean
   tunMtu: number
+  tunFakeIp: boolean
+  fakeIpExclude: string
   routeMode: 'rule' | 'global' | 'direct'
   blockAds: boolean
-  directRules: string
-  proxyRules: string
-  blockRules: string
+  rules: Rule[]
+  scenes: Scene[]
   ruleSetMirror: string
   remoteDns: string
   directDns: string
@@ -35,6 +41,7 @@ export interface Settings {
   /** what a node's country is judged by: the exit IP or the server IP */
   countrySource: 'exit' | 'server'
   countryNoticeShown: boolean
+  ruleTipShown: boolean
   logLevel: string
   logToFile: boolean
   logFileMaxMb: number
@@ -42,8 +49,101 @@ export interface Settings {
   logViewLimit: number
   connectOnStart: boolean
   autoStart: boolean
+  autoStartConnect: boolean
   closeToTray: boolean
   findProcess: boolean
+}
+
+export type RuleKind = 'geosite' | 'suffix' | 'domain' | 'keyword' | 'regex' | 'geoip' | 'cidr' | 'process'
+
+/** 'proxy' | 'direct' | 'block' | 'policy:<id>' */
+export type Target = string
+
+export interface Rule {
+  kind: RuleKind
+  values: string[]
+  target: Target
+  disabled?: boolean
+}
+
+export interface Scene {
+  id: string
+  enabled: boolean
+  target: Target
+}
+
+export interface Policy {
+  id: number
+  name: string
+  match: 'country' | 'keyword' | 'manual'
+  country?: string
+  keyword?: string
+  members?: number[]
+  groupId?: number
+  mode: 'auto' | 'select'
+  selected?: number
+}
+
+export interface PolicyMember {
+  id: number
+  name: string
+  type: string
+  latency: number
+  country: string
+}
+
+export interface PolicyView extends Policy {
+  nodes: PolicyMember[]
+  /** the member the running core uses (0 = not running / unused) */
+  now: number
+  rules: number
+}
+
+export interface RouteMatch {
+  input: string
+  source: 'ads' | 'rule' | 'scene' | 'private' | 'final'
+  index: number
+  scene: string
+  target: Target | 'final'
+  note?: string
+}
+
+export interface ExitInfo {
+  nodeId: number
+  checking: boolean
+  ip: string
+  country: string
+  latency: number
+  error?: string
+  at: number
+}
+
+export interface AutoStartStatus {
+  enabled: boolean
+  ok: boolean
+  method: '' | 'run' | 'task'
+  problem: '' | 'missing' | 'moved' | 'disabled' | 'tun' | 'error'
+  detail?: string
+}
+
+export interface BackupOptions {
+  nodes: boolean
+  rules: boolean
+  settings: boolean
+  password: string
+  replace?: boolean
+}
+
+export interface BackupInfo {
+  encrypted: boolean
+  needPassword: boolean
+  platform: string
+  version: number
+  hasNodes: boolean
+  hasRules: boolean
+  hasSettings: boolean
+  summary: { groups: number; subscriptions: number; nodes: number; chains: number; policies: number }
+  rules: number
 }
 
 export interface SubscriptionInfo {
@@ -75,6 +175,8 @@ export interface Profile {
   outbound: Outbound
   latency: number
   latencyError?: string
+  /** how the latency was measured */
+  latencyKind?: 'tcp' | 'url'
   testedAt?: number
   upload: number
   download: number
@@ -125,6 +227,9 @@ export interface AppState {
   dataDir: string
   settings: Settings
   groups: Group[]
+  /** the node list waits for its start-up password */
+  locked: boolean
+  encryption: '' | 'windows' | 'password'
 }
 
 export interface Connection {
@@ -190,6 +295,8 @@ export interface LatencyResult {
   skipped?: boolean
   /** where the node's traffic leaves, when it was looked up */
   exit?: { ip: string; country: string }
+  /** how it was measured */
+  kind?: 'tcp' | 'url'
 }
 
 const w = window as any
@@ -244,6 +351,23 @@ export const api = {
   checkUpdate: () => call<UpdateInfo>('CheckUpdate'),
 
   updateRuleSets: () => call<string>('UpdateRuleSets'),
+  testRoute: (input: string) => call<RouteMatch>('TestRoute', input),
+  getPolicies: () => call<PolicyView[]>('GetPolicies'),
+  savePolicy: (p: Policy) => call<Policy>('SavePolicy', p),
+  deletePolicy: (id: number) => call<void>('DeletePolicy', id),
+  selectPolicyNode: (id: number, node: number) => call<void>('SelectPolicyNode', id, node),
+
+  getExitInfo: () => call<ExitInfo>('GetExitInfo'),
+  refreshExit: () => call<void>('RefreshExit'),
+  getAutoStartStatus: () => call<AutoStartStatus>('GetAutoStartStatus'),
+  repairAutoStart: () => call<AutoStartStatus>('RepairAutoStart'),
+
+  exportBackup: (o: BackupOptions) => call<string>('ExportBackup', o),
+  chooseBackup: () => call<string>('ChooseBackup'),
+  inspectBackup: (path: string, password: string) => call<BackupInfo>('InspectBackup', path, password),
+  importBackup: (path: string, o: BackupOptions) => call<string>('ImportBackup', path, o),
+  setEncryption: (mode: string, password: string) => call<void>('SetEncryption', mode, password),
+  unlock: (password: string) => call<void>('Unlock', password),
   restartAsAdmin: () => call<void>('RestartAsAdmin'),
   openDataDir: () => call<void>('OpenDataDir'),
   openCoreDir: () => call<void>('OpenCoreDir'),

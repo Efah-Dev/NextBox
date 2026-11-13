@@ -10,3 +10,6 @@ frontend/dist/*
 !frontend/dist/.gitkeep
 frontend/wailsjs/
 frontend/package.json.md5
+
+# go build output in the repository root
+/nextbox.exe

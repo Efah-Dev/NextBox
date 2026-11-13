@@ -104,6 +104,9 @@ func (a *App) startLocked() error {
 		RuleSetDir: a.ruleSetDir(), SkipMissingRuleSets: true,
 	}
 	if node != nil {
+		in.Policies = a.policyInputs(s)
+	}
+	if node != nil {
 		for _, p := range a.store.Profiles(node.GroupID) {
 			if p.ID != node.ID && len(in.Nodes) < maxSwitchable-1 && a.chainError(p) == nil {
 				in.Nodes = append(in.Nodes, p)
@@ -120,7 +123,7 @@ func (a *App) startLocked() error {
 	} else {
 		a.log(i18n.T("正在启动直连模式"))
 	}
-	proc, err := core.Start(a.ctx, a.corePath(), a.runDir(), "config.json", cfg, api, a.logs.Append)
+	proc, err := core.Start(a.ctx, a.corePath(), a.runDir(), cfg, api, a.logs.Append)
 	if err != nil && len(in.Nodes) > 0 {
 		// Most likely one of the other nodes has a configuration the core
 		// rejects; the selected node must still be usable on its own.
@@ -129,7 +132,7 @@ func (a *App) startLocked() error {
 		if cfg, err = config.Build(in); err != nil {
 			return err
 		}
-		proc, err = core.Start(a.ctx, a.corePath(), a.runDir(), "config.json", cfg, api, a.logs.Append)
+		proc, err = core.Start(a.ctx, a.corePath(), a.runDir(), cfg, api, a.logs.Append)
 	}
 	if err != nil {
 		a.log(err.Error())
@@ -138,25 +141,31 @@ func (a *App) startLocked() error {
 
 	var nodeID int64
 	loaded := map[int64]loadedNode{}
+	var nodeTags, policyTags map[int64]string
 	if node != nil {
 		nodeID = node.ID
-		nodes := in.Switchable()
-		tags := config.NodeTags(nodes)
-		for _, p := range nodes {
-			loaded[p.ID] = loadedNode{tag: tags[p.ID], outbound: a.outboundKey(p)}
+		_, nodeTags, policyTags = in.Tags()
+		for _, p := range in.Switchable() {
+			loaded[p.ID] = loadedNode{tag: nodeTags[p.ID], outbound: a.outboundKey(p)}
 		}
 		// The core remembers the last selection in its cache file and would
 		// prefer it over the configured default.
-		if err := proc.API.SelectProxy(a.ctx, config.TagProxy, tags[nodeID]); err != nil {
+		if err := proc.API.SelectProxy(a.ctx, config.TagProxy, nodeTags[nodeID]); err != nil {
 			proc.Stop()
 			a.log(err.Error())
 			return err
+		}
+		for _, pi := range in.Policies {
+			if pi.Policy.Mode == store.PolicySelect && pi.Policy.Selected != 0 {
+				proc.API.SelectProxy(a.ctx, policyTags[pi.Policy.ID], nodeTags[pi.Policy.Selected])
+			}
 		}
 	}
 	a.mu.Lock()
 	a.proc = proc
 	a.runningID = nodeID
 	a.loaded = loaded
+	a.nodeTags, a.policyTags = nodeTags, policyTags
 	a.tunActive = s.TunEnabled
 	a.startedAt = time.Now()
 	trafficCtx, cancel := context.WithCancel(a.ctx)
@@ -169,6 +178,7 @@ func (a *App) startLocked() error {
 		}
 	}
 	go a.trafficLoop(trafficCtx, proc)
+	go a.exitLoop(trafficCtx)
 	go a.watch(proc)
 	a.log(i18n.T("内核已启动，混合代理端口 ") + strconv.Itoa(s.MixedPort))
 	return nil
@@ -180,6 +190,7 @@ func (a *App) stopLocked() {
 	a.proc = nil
 	a.runningID = 0
 	a.loaded = nil
+	a.nodeTags, a.policyTags = nil, nil
 	if a.stopTraffic != nil {
 		a.stopTraffic()
 		a.stopTraffic = nil
@@ -263,6 +274,7 @@ func (a *App) applySystemProxy(s store.Settings, enable bool) error {
 		}
 		err := sys.ClearSystemProxy(a.sysProxyAddr)
 		a.sysProxyAddr = ""
+		sys.SetProxyCleanup("")
 		return err
 	}
 	addr := proxyAddr(s)
@@ -270,6 +282,9 @@ func (a *App) applySystemProxy(s store.Settings, enable bool) error {
 		return err
 	}
 	a.sysProxyAddr = addr
+	if err := sys.SetProxyCleanup(addr); err != nil {
+		a.logs.Append(time.Now().Format("15:04:05") + " [GUI] " + err.Error())
+	}
 	return nil
 }
 
@@ -315,5 +330,6 @@ func (a *App) switchNode(id int64) bool {
 	}
 	a.mu.Unlock()
 	a.log(i18n.T("已切换到节点: ") + p.Name)
+	go a.checkExit()
 	return true
 }

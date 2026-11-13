@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import { api, rt, type AppState, type LatencyResult, type LogBatch, type Profile, type Settings, type UpdateInfo } from './api'
+import { api, rt, type AppState, type ExitInfo, type LatencyResult, type LogBatch, type Profile, type Settings, type UpdateInfo } from './api'
 import { t } from './i18n'
 import { toast } from './util'
 
@@ -17,6 +17,10 @@ export const state = reactive({
   update: null as UpdateInfo | null,
   /** the one-time explanation of how countries are found (CountryNotice) */
   countryNotice: false,
+  /** where the connected node's traffic leaves (home page) */
+  exit: null as ExitInfo | null,
+  /** appearance being edited on the settings page, shown before it is saved */
+  look: null as Pick<Settings, 'theme' | 'accentColor' | 'lightLevel' | 'darkLevel'> | null,
 })
 
 /** Called after nodes were added: the first time, explains where the flags
@@ -106,6 +110,8 @@ export async function init() {
 
   await refreshState()
   await loadProfiles()
+  rt.on('exit', (e: ExitInfo) => (state.exit = e))
+  if (state.app?.running) state.exit = await api.getExitInfo().catch(() => null)
   const backlog = await api.getLogs()
   state.logs = backlog.lines.map(cleanLog)
   shown = backlog.next
@@ -124,6 +130,7 @@ export async function init() {
     if (!s.running) {
       state.traffic.up = 0
       state.traffic.down = 0
+      state.exit = null
     }
   })
   rt.on('profiles', async (groupId: number) => {
@@ -164,6 +171,7 @@ export async function init() {
     if (!r.skipped) {
       p.latency = r.latency
       p.latencyError = r.error
+      p.latencyKind = r.kind ?? (latencyTest.mode || undefined)
     }
     if (r.exit) Object.assign(p, { country: r.exit.country, countryIp: r.exit.ip, countrySource: 'exit', countryAt: Date.now() / 1000 })
   })

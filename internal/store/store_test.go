@@ -70,7 +70,7 @@ func TestPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	// latency and traffic only reach the disk with Flush
-	s.SetLatency(added[0].ID, 42, "", 100)
+	s.SetLatency(added[0].ID, 42, "", 100, "url")
 	s.AddTraffic(added[0].ID, 10, 20)
 	if err := s.Flush(); err != nil {
 		t.Fatal(err)
@@ -186,9 +186,9 @@ func TestSortGroup(t *testing.T) {
 	other, _ := s.AddGroup(Group{Name: "other"})
 	list, _ := s.AddProfiles(g.ID, []Profile{node("slow"), node("untested"), node("failed"), node("fast")})
 	s.AddProfiles(other.ID, []Profile{node("zzz")})
-	s.SetLatency(list[0].ID, 300, "", 1)
-	s.SetLatency(list[2].ID, -1, "timeout", 1)
-	s.SetLatency(list[3].ID, 20, "", 1)
+	s.SetLatency(list[0].ID, 300, "", 1, "url")
+	s.SetLatency(list[2].ID, -1, "timeout", 1, "url")
+	s.SetLatency(list[3].ID, 20, "", 1, "url")
 
 	names := func() string {
 		out := ""

@@ -4,6 +4,7 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -15,7 +16,6 @@ import (
 	"nextbox/internal/i18n"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -34,26 +34,24 @@ type Process struct {
 	tail []string // last log lines, used in error messages
 }
 
-// Start writes cfg to workDir/configName and launches `sing-box run`. It
-// returns once the clash API answers, or with an error if the core exits.
-func Start(ctx context.Context, bin, workDir, configName string, cfg map[string]any, api *API, onLog func(string)) (*Process, error) {
+// Start launches `sing-box run` in workDir with cfg. The config holds node
+// passwords, so it is handed over through stdin and never written to disk.
+// Start returns once the clash API answers, or with an error if the core exits.
+func Start(ctx context.Context, bin, workDir string, cfg map[string]any, api *API, onLog func(string)) (*Process, error) {
 	if _, err := os.Stat(bin); err != nil {
 		return nil, fmt.Errorf(i18n.T("找不到内核 %s，请把 sing-box 放到 core 目录"), bin)
 	}
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return nil, err
 	}
-	b, err := json.MarshalIndent(cfg, "", "  ")
+	b, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
 	}
-	cfgPath := filepath.Join(workDir, configName)
-	if err := os.WriteFile(cfgPath, b, 0o644); err != nil {
-		return nil, err
-	}
 
-	cmd := exec.Command(bin, "run", "-c", cfgPath, "-D", workDir, "--disable-color")
+	cmd := exec.Command(bin, "run", "-c", "stdin", "-D", workDir, "--disable-color")
 	cmd.Dir = workDir
+	cmd.Stdin = bytes.NewReader(b)
 	sys.PrepareCmd(cmd)
 	pr, pw := io.Pipe()
 	cmd.Stdout, cmd.Stderr = pw, pw

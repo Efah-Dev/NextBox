@@ -228,7 +228,7 @@ function openTestSettings() {
 
 const testItems = computed<MenuItem[]>(() => [
   { label: t('URL 测试'), hint: t('经节点访问测速地址，测真实延迟'), icon: 'zap', action: () => test('url') },
-  { label: t('TCP 测试'), hint: t('只测连上服务器的时间，更快但不经过节点'), icon: 'gauge', action: () => test('tcp') },
+  { label: t('TCP 测试'), hint: t('只测连上服务器的时间，更快但不经过节点；基于 UDP 的协议和链式代理自动改用 URL 测试'), icon: 'gauge', action: () => test('tcp') },
   { label: t('测速设置…'), icon: 'settings', action: openTestSettings },
 ])
 
@@ -261,6 +261,26 @@ const moreItems = computed<MenuItem[]>(() => [
   { label: t('删除失效节点'), icon: 'trash', danger: true, action: deleteUnavailable },
   { label: t('删除分组'), icon: 'trash', danger: true, action: deleteGroup },
 ])
+
+// ---- single node test (the bolt on each row) ----
+
+// Protocols on top of UDP (QUIC) cannot be reached by a TCP handshake, and a
+// TCP test of a chain proxy would only reach its first hop: these always use
+// a URL test.
+// (keep in sync with core.URLOnly, which does the same for batch TCP tests)
+const urlOnlyTypes = new Set(['hysteria', 'hysteria2', 'tuic', 'wireguard', 'chain'])
+const urlOnly = (p: Profile) => urlOnlyTypes.has(p.type)
+
+function testOne(p: Profile, e: MouseEvent) {
+  if (latencyTest.mode) return toast(t('正在测速，请稍候'), 'error')
+  const mode = e.shiftKey || urlOnly(p) ? 'url' : 'tcp'
+  run(() => api.testLatency([p.id], mode))
+}
+
+function boltTitle(p: Profile) {
+  if (urlOnly(p)) return p.type === 'chain' ? t('URL 测试（链式代理要测整条链路）') : t('URL 测试（基于 UDP 的协议不能用 TCP 测速）')
+  return t('TCP 测速：只测服务器端口能否连上。按住 Shift 点击改用 URL 测试，检验节点是否真的可用')
+}
 </script>
 
 <template>
@@ -380,8 +400,11 @@ const moreItems = computed<MenuItem[]>(() => [
           <span v-else class="faint mono ellipsis node-server">{{ serverOf(p.outbound) }}</span>
           <span v-if="latencyTest.running.has(p.id)" class="lat" :title="t('测速中')"><span class="probe-bars"><i /><i /><i /><i /></span></span>
           <span v-else-if="latencyTest.waiting.has(p.id)" class="lat lat-none waiting">{{ t('等待中') }}</span>
-          <span v-else class="lat" :class="latencyClass(p.latency)" :title="p.latencyError">{{ latencyText(p.latency) }}</span>
+          <span v-else class="lat" :class="latencyClass(p.latency)" :title="p.latencyError">
+            <span v-if="p.latencyKind && p.latency" class="lat-kind" :title="p.latencyKind === 'tcp' ? t('TCP 测速：只说明服务器端口能连上') : t('URL 测试：通过节点访问测速地址')">{{ p.latencyKind.toUpperCase() }}</span>{{ latencyText(p.latency) }}
+          </span>
           <div class="node-actions" @click.stop @dblclick.stop>
+            <button class="btn ghost small icon bolt" :class="{ busy: latencyTest.running.has(p.id) }" :title="boltTitle(p)" @click="testOne(p, $event)"><Icon name="zap" :size="14" /></button>
             <button class="btn ghost small icon" :title="t('编辑')" @click="editProfile(p)"><Icon name="edit" :size="14" /></button>
             <button class="btn ghost small icon" :disabled="p.type === 'chain'" :title="p.type === 'chain' ? t('链式代理没有分享链接') : t('复制分享链接')" @click="shareProfile(p)"><Icon name="link" :size="14" /></button>
             <button class="btn ghost small icon danger" :title="t('删除')" @click="deleteProfile(p)"><Icon name="trash" :size="14" /></button>
@@ -507,7 +530,7 @@ const moreItems = computed<MenuItem[]>(() => [
 .list-head,
 .node {
   display: grid;
-  grid-template-columns: 16px minmax(0, 2fr) 104px minmax(0, 1.3fr) 70px 92px;
+  grid-template-columns: 16px minmax(0, 2fr) 104px minmax(0, 1.3fr) 92px 122px;
   align-items: center;
   gap: 14px;
   padding: 0 10px 0 14px;
@@ -800,6 +823,36 @@ const moreItems = computed<MenuItem[]>(() => [
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+.lat {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.lat-kind {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 0 4px;
+  border-radius: 3px;
+  line-height: 14px;
+  color: var(--text-3);
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.bolt:hover {
+  color: var(--mid);
+}
+.bolt.busy :deep(svg) {
+  color: var(--mid);
+  animation: zap 0.6s ease-in-out infinite;
+}
+@keyframes zap {
+  50% {
+    transform: scale(0.75);
+    opacity: 0.5;
   }
 }
 </style>

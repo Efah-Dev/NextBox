@@ -39,7 +39,7 @@ func TestURLMeasuresThroughNode(t *testing.T) {
 	serverPort, _ := FreePort()
 	apiPort, _ := FreePort()
 	api := NewAPI("127.0.0.1:"+strconv.Itoa(apiPort), "s")
-	server, err := Start(context.Background(), bin, t.TempDir(), "server.json", map[string]any{
+	server, err := Start(context.Background(), bin, t.TempDir(), map[string]any{
 		"log":       map[string]any{"level": "error"},
 		"inbounds":  []any{map[string]any{"type": "mixed", "listen": "127.0.0.1", "listen_port": serverPort}},
 		"outbounds": []any{map[string]any{"type": "direct"}},

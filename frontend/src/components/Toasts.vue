@@ -16,10 +16,12 @@ import { toasts } from '../util'
 <style scoped>
 .toasts {
   position: fixed;
-  left: 16px;
-  bottom: 16px;
+  top: calc(var(--titlebar) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
   z-index: 100;
   pointer-events: none;
@@ -58,7 +60,7 @@ import { toasts } from '../util'
 }
 .toast-enter-from,
 .toast-leave-to {
-  transform: translateX(-110%);
+  transform: translateY(-14px) scale(0.97);
   opacity: 0;
 }
 .toast-move {

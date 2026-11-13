@@ -28,6 +28,19 @@ type LatencyResult struct {
 	Skipped bool `json:"skipped,omitempty"`
 	// Exit is where the node's traffic leaves, when it was looked up.
 	Exit *geo.Location `json:"exit,omitempty"`
+	// Kind is how it was measured: "tcp" or "url".
+	Kind string `json:"kind,omitempty"`
+}
+
+// URLOnly reports whether a node can only be measured with a URL test: a
+// protocol on top of UDP (QUIC) does not answer a TCP handshake, and a TCP
+// test of a chain proxy would only reach its first hop.
+func URLOnly(p store.Profile) bool {
+	switch p.Type {
+	case "hysteria", "hysteria2", "tuic", "wireguard", store.TypeChain:
+		return true
+	}
+	return false
 }
 
 // Progress receives the events of a latency test: Start when a node's
@@ -78,7 +91,7 @@ func testBatch(ctx context.Context, bin, workDir string, s store.Settings, nodes
 		return err
 	}
 	proxyAddr := "127.0.0.1:" + strconv.Itoa(proxyPort)
-	p, err := Start(ctx, bin, workDir, "test.json", cfg, api, nil)
+	p, err := Start(ctx, bin, workDir, cfg, api, nil)
 	if err != nil {
 		return err
 	}
@@ -151,6 +164,20 @@ func measureRTT(ctx context.Context, proxy *url.URL, testURL string, timeout tim
 		return -1, simplifyErr(err)
 	}
 	return max(1, int(time.Since(start).Milliseconds())), nil
+}
+
+// ProbeExit measures a request through proxy (see measureRTT) and asks where
+// it leaves from. ms is -1 when the request failed.
+func ProbeExit(ctx context.Context, proxy *url.URL, testURL string, timeout time.Duration) (int, geo.Location, error) {
+	ms, err := measureRTT(ctx, proxy, testURL, timeout)
+	if err != nil {
+		return -1, geo.Location{}, err
+	}
+	loc, err := locate(ctx, proxy, timeout)
+	if err != nil {
+		return ms, geo.Location{}, simplifyErr(err)
+	}
+	return ms, loc, nil
 }
 
 // locate asks where requests sent through the proxy come from.

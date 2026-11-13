@@ -45,7 +45,7 @@ function path(values: number[], close: boolean) {
 <style scoped>
 .spark {
   width: 100%;
-  height: 90px;
+  height: 66px;
   display: block;
 }
 .grid {

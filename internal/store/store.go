@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+
+	"nextbox/internal/vault"
 )
 
 type data struct {
@@ -16,6 +18,7 @@ type data struct {
 	Profiles       []*Profile `json:"profiles"`
 	SelectedID     int64      `json:"selectedId"`
 	CurrentGroupID int64      `json:"currentGroupId"`
+	Policies       []*Policy  `json:"policies,omitempty"`
 }
 
 // Store keeps all user data in memory and persists it as JSON files in Dir.
@@ -26,6 +29,12 @@ type Store struct {
 	mu       sync.RWMutex
 	data     data
 	settings Settings
+
+	// see crypt.go
+	encryption string
+	locked     bool               // waiting for the password; nothing is saved meanwhile
+	sealed     vault.Envelope     // the locked file
+	key        *vault.PasswordKey // for EncryptPassword
 }
 
 func Open(dir string) (*Store, error) {
@@ -33,7 +42,7 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{Dir: dir, settings: DefaultSettings()}
-	if err := readJSON(filepath.Join(dir, "profiles.json"), &s.data); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.loadProfiles(); err != nil {
 		return nil, err
 	}
 	if err := readJSON(filepath.Join(dir, "settings.json"), &s.settings); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -99,7 +108,14 @@ func writeJSON(path string, v any) error {
 }
 
 func (s *Store) saveDataLocked() error {
-	return writeJSON(filepath.Join(s.Dir, "profiles.json"), &s.data)
+	if s.locked {
+		return nil // the real list is still sealed on disk
+	}
+	b, err := s.encodeDataLocked()
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(s.profilesPath(), b)
 }
 
 func (s *Store) nextIDLocked() int64 {
@@ -478,11 +494,12 @@ func (s *Store) DeleteProfiles(ids []int64) error {
 	return s.saveDataLocked()
 }
 
-func (s *Store) SetLatency(id int64, latency int, errMsg string, at int64) {
+// SetLatency records a test result; kind is "tcp" or "url".
+func (s *Store) SetLatency(id int64, latency int, errMsg string, at int64, kind string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if p := s.profileLocked(id); p != nil {
-		p.Latency, p.LatencyError, p.TestedAt = latency, errMsg, at
+		p.Latency, p.LatencyError, p.TestedAt, p.LatencyKind = latency, errMsg, at, kind
 	}
 }
 
@@ -557,5 +574,75 @@ func (s *Store) SetSelected(id int64) error {
 		return errors.New(i18n.T("节点不存在"))
 	}
 	s.data.SelectedID = id
+	return s.saveDataLocked()
+}
+
+// ---- policy groups ----
+
+func (s *Store) Policies() []Policy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Policy, 0, len(s.data.Policies))
+	for _, p := range s.data.Policies {
+		out = append(out, *p)
+	}
+	return out
+}
+
+func (s *Store) policyLocked(id int64) *Policy {
+	for _, p := range s.data.Policies {
+		if p.ID == id {
+			return p
+		}
+	}
+	return nil
+}
+
+func (s *Store) Policy(id int64) (Policy, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if p := s.policyLocked(id); p != nil {
+		return *p, true
+	}
+	return Policy{}, false
+}
+
+// SavePolicy adds (ID 0) or replaces a policy group.
+func (s *Store) SavePolicy(p Policy) (Policy, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p.ID == 0 {
+		p.ID = s.nextIDLocked()
+		s.data.Policies = append(s.data.Policies, &p)
+	} else if old := s.policyLocked(p.ID); old != nil {
+		*old = p
+	} else {
+		return Policy{}, errors.New(i18n.T("分组代理不存在"))
+	}
+	return p, s.saveDataLocked()
+}
+
+func (s *Store) DeletePolicy(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := s.data.Policies[:0]
+	for _, p := range s.data.Policies {
+		if p.ID != id {
+			kept = append(kept, p)
+		}
+	}
+	s.data.Policies = kept
+	return s.saveDataLocked()
+}
+
+// SetPolicySelected records the node chosen in a policy group in select mode.
+func (s *Store) SetPolicySelected(id, node int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.policyLocked(id)
+	if p == nil {
+		return errors.New(i18n.T("分组代理不存在"))
+	}
+	p.Selected = node
 	return s.saveDataLocked()
 }

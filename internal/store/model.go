@@ -3,6 +3,7 @@ package store
 import (
 	"net"
 	"strconv"
+	"strings"
 )
 
 // Profile is one proxy node. The node itself is stored as a sing-box outbound
@@ -17,6 +18,7 @@ type Profile struct {
 	// Latency in ms: 0 = not tested, -1 = failed.
 	Latency      int    `json:"latency"`
 	LatencyError string `json:"latencyError,omitempty"`
+	LatencyKind  string `json:"latencyKind,omitempty"` // how it was measured: "tcp" or "url"
 	TestedAt     int64  `json:"testedAt,omitempty"`
 	Upload       int64  `json:"upload"`
 	Download     int64  `json:"download"`
@@ -88,6 +90,11 @@ type Settings struct {
 	Theme       string `json:"theme"` // auto | light | dark
 	AccentColor string `json:"accentColor"`
 	Language    string `json:"language"`
+	// How far the light theme is dimmed and how deep the dark theme goes,
+	// 0-100 (see DefaultSettings for the defaults).
+	LightLevel   int      `json:"lightLevel"`
+	DarkLevel    int      `json:"darkLevel"`
+	RecentColors []string `json:"recentColors,omitempty"` // custom accent colours, newest first
 
 	ListenAddress string `json:"listenAddress"`
 	MixedPort     int    `json:"mixedPort"`
@@ -98,12 +105,23 @@ type Settings struct {
 	TunStack       string `json:"tunStack"` // system | gvisor | mixed
 	TunStrictRoute bool   `json:"tunStrictRoute"`
 	TunMTU         int    `json:"tunMtu"`
+	// FakeIP answers DNS queries for proxied domains with addresses from a
+	// reserved range (TUN mode only); FakeIPExclude lists domain suffixes,
+	// one per line, that always get real addresses.
+	TunFakeIP     bool   `json:"tunFakeIp"`
+	FakeIPExclude string `json:"fakeIpExclude"`
 
-	RouteMode     string `json:"routeMode"` // rule | global | direct
-	BlockAds      bool   `json:"blockAds"`
-	DirectRules   string `json:"directRules"` // one rule per line, see config.parseRuleLines
-	ProxyRules    string `json:"proxyRules"`
-	BlockRules    string `json:"blockRules"`
+	RouteMode string `json:"routeMode"` // global | rule | direct
+	BlockAds  bool   `json:"blockAds"`  // in every mode
+	// Rules and Scenes only apply in rule mode. Rules are checked in order,
+	// before the scenes.
+	Rules  []Rule  `json:"rules"`
+	Scenes []Scene `json:"scenes"`
+	// The rule lists of v1.2 and of NextBox for Android (one rule per line);
+	// converted into Rules when found, see migrateRules.
+	DirectRules   string `json:"directRules,omitempty"`
+	ProxyRules    string `json:"proxyRules,omitempty"`
+	BlockRules    string `json:"blockRules,omitempty"`
 	RuleSetMirror string `json:"ruleSetMirror"`
 
 	RemoteDNS  string `json:"remoteDns"`
@@ -123,6 +141,7 @@ type Settings struct {
 
 	CountrySource      string `json:"countrySource"`      // CountryExit or CountryServer
 	CountryNoticeShown bool   `json:"countryNoticeShown"` // the choice was explained once
+	RuleTipShown       bool   `json:"ruleTipShown"`       // rule mode was explained on the home page
 
 	LogLevel       string `json:"logLevel"`
 	LogToFile      bool   `json:"logToFile"`    // also write the log to config/logs
@@ -131,8 +150,10 @@ type Settings struct {
 	LogViewLimit   int    `json:"logViewLimit"` // lines kept on the log page
 	ConnectOnStart bool   `json:"connectOnStart"`
 	AutoStart      bool   `json:"autoStart"`
-	CloseToTray    bool   `json:"closeToTray"` // the close button hides the window to the tray
-	FindProcess    bool   `json:"findProcess"` // resolve the process of each connection (small overhead)
+	// AutoStartConnect connects to the last node when started by Windows.
+	AutoStartConnect bool `json:"autoStartConnect"`
+	CloseToTray      bool `json:"closeToTray"` // the close button hides the window to the tray
+	FindProcess      bool `json:"findProcess"` // resolve the process of each connection (small overhead)
 }
 
 const (
@@ -144,31 +165,36 @@ const (
 
 func DefaultSettings() Settings {
 	return Settings{
-		Theme:           "auto",
-		AccentColor:     "#F472B6",
-		Language:        "zh-CN",
-		ListenAddress:   "127.0.0.1",
-		MixedPort:       2030,
-		SystemProxy:     true,
-		CloseToTray:     true,
-		TunStack:        "mixed",
-		TunStrictRoute:  true,
-		TunMTU:          9000,
-		RouteMode:       "rule",
-		RuleSetMirror:   LocalRuleSetMirror,
-		RemoteDNS:       "https://1.1.1.1/dns-query",
-		DirectDNS:       "223.5.5.5",
-		Sniff:           true,
-		TestURL:         "https://www.google.com/generate_204",
-		TestTimeout:     5000,
-		TestConcurrency: 16,
-		SubUserAgent:    "NextBox/1.2.0 (sing-box; ClashMeta compatible)",
-		SubUpdateHours:  12,
-		CountrySource:   CountryExit,
-		LogLevel:        "info",
-		LogFileMaxMB:    10,
-		LogKeepDays:     7,
-		LogViewLimit:    500,
+		Theme:            "auto",
+		AccentColor:      "#F472B6",
+		Language:         "zh-CN",
+		ListenAddress:    "127.0.0.1",
+		MixedPort:        2030,
+		SystemProxy:      true,
+		CloseToTray:      true,
+		TunStack:         "mixed",
+		TunStrictRoute:   true,
+		TunMTU:           9000,
+		FakeIPExclude:    DefaultFakeIPExclude,
+		RouteMode:        "global", // nothing to set up; rule mode bypasses mainland China
+		Scenes:           DefaultScenes(),
+		Rules:            []Rule{},
+		DarkLevel:        DefaultDarkLevel,
+		AutoStartConnect: true,
+		RuleSetMirror:    LocalRuleSetMirror,
+		RemoteDNS:        "https://1.1.1.1/dns-query",
+		DirectDNS:        "223.5.5.5",
+		Sniff:            true,
+		TestURL:          "https://www.google.com/generate_204",
+		TestTimeout:      5000,
+		TestConcurrency:  16,
+		SubUserAgent:     "NextBox/2.0.0 (sing-box; ClashMeta compatible)",
+		SubUpdateHours:   12,
+		CountrySource:    CountryExit,
+		LogLevel:         "info",
+		LogFileMaxMB:     10,
+		LogKeepDays:      7,
+		LogViewLimit:     500,
 	}
 }
 
@@ -196,9 +222,14 @@ func (s *Settings) fillDefaults() {
 	if s.TunMTU <= 0 {
 		s.TunMTU = d.TunMTU
 	}
-	if s.RouteMode == "" {
-		s.RouteMode = d.RouteMode
+	if s.RouteMode != "rule" && s.RouteMode != "direct" {
+		s.RouteMode = "global"
 	}
+	s.LightLevel = clamp(s.LightLevel, 0, 100)
+	s.DarkLevel = clamp(s.DarkLevel, 0, 100)
+	s.migrateRules()
+	s.Rules = cleanRules(s.Rules)
+	s.Scenes = mergeScenes(s.Scenes)
 	if s.RuleSetMirror == "" {
 		s.RuleSetMirror = d.RuleSetMirror
 	}
@@ -217,7 +248,8 @@ func (s *Settings) fillDefaults() {
 	if s.TestConcurrency <= 0 {
 		s.TestConcurrency = d.TestConcurrency
 	}
-	if s.SubUserAgent == "" {
+	// the default of an older version follows the new one; a custom value stays
+	if s.SubUserAgent == "" || (strings.HasPrefix(s.SubUserAgent, "NextBox/") && strings.HasSuffix(s.SubUserAgent, " (sing-box; ClashMeta compatible)")) {
 		s.SubUserAgent = d.SubUserAgent
 	}
 	if s.CountrySource != CountryServer {

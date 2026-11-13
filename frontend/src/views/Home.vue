@@ -7,6 +7,7 @@ import Switch from '../components/Switch.vue'
 import Segmented from '../components/Segmented.vue'
 import Sparkline from '../components/Sparkline.vue'
 import Flag from '../components/Flag.vue'
+import ExitPill from '../components/ExitPill.vue'
 import { bareName, countryTitle, nodeCountry } from '../country'
 import { api, rt } from '../api'
 import { currentGroup, nodesAdded, patchSettings, selectedProfile, settings, state } from '../state'
@@ -21,9 +22,32 @@ const running = computed(() => !!state.app?.running)
 const uptime = computed(() => (running.value ? formatDuration(now.value - (state.app?.startedAt ?? now.value)) : '--:--'))
 
 const routeMode = computed({
-  get: () => settings.value?.routeMode ?? 'rule',
-  set: (v) => run(() => patchSettings({ routeMode: v as any })),
+  get: () => settings.value?.routeMode ?? 'global',
+  set: (v) => {
+    // the first switch to rule mode explains what it does out of the box
+    const tip = v === 'rule' && !settings.value?.ruleTipShown
+    run(() => patchSettings(tip ? { routeMode: 'rule', ruleTipShown: true } : { routeMode: v as any }))
+    ruleTip.value = tip
+  },
 })
+const ruleTip = ref(false)
+function openRules() {
+  ruleTip.value = false
+  state.settingsSection = 'route'
+  state.page = 'settings'
+}
+
+// Results of the connect button, shown in the log card (bottom left) rather
+// than as a toast over the button itself.
+const message = ref<{ text: string; kind: 'ok' | 'bad' | 'plain'; seq: number } | null>(null)
+let messageTimer = 0
+function say(text: string, kind: 'ok' | 'bad' | 'plain') {
+  clearTimeout(messageTimer)
+  const seq = (message.value?.seq ?? 0) + 1
+  message.value = { text, kind, seq }
+  // failures stay until closed
+  if (kind !== 'bad') messageTimer = window.setTimeout(() => (message.value = null), 3000)
+}
 const tun = computed({
   get: () => !!settings.value?.tunEnabled,
   set: (v) => {
@@ -38,14 +62,17 @@ const tun = computed({
 async function toggle() {
   if (busy.value) return
   busy.value = true
+  const started = Date.now()
   try {
-    if (running.value) await api.disconnect()
-    else {
+    if (running.value) {
+      await api.disconnect()
+      say(t('已断开'), 'plain')
+    } else {
       await api.connect()
-      toast(t('连接成功'), 'success')
+      say(t('已连接 · 用时 {0} 秒', ((Date.now() - started) / 1000).toFixed(1)), 'ok')
     }
   } catch (e) {
-    toast((e as Error).message, 'error')
+    say(t('连接失败：') + (e as Error).message.split('\n')[0], 'bad')
   } finally {
     busy.value = false
   }
@@ -153,14 +180,29 @@ onUnmounted(() => {
 
       <div>
         <div class="side-title">{{ t('路由模式') }}</div>
-        <Segmented
-          v-model="routeMode"
-          :options="[
-            { value: 'rule', label: t('规则分流') },
-            { value: 'global', label: t('全局代理') },
-            { value: 'direct', label: t('全部直连') },
-          ]"
-        />
+        <div class="mode-wrap">
+          <Segmented
+            v-model="routeMode"
+            :options="[
+              { value: 'global', label: t('全局代理') },
+              { value: 'rule', label: t('规则分流') },
+              { value: 'direct', label: t('全部直连') },
+            ]"
+          />
+          <Transition name="pop">
+            <div v-if="ruleTip" class="rule-tip">
+              <b>{{ t('已切换到规则分流') }}</b>
+              <p>{{ t('默认绕过中国大陆的网站和 IP，其余走代理，无需配置。有其他需求可以自己添加规则。') }}</p>
+              <div class="rule-tip-actions">
+                <button class="btn ghost small" @click="ruleTip = false">{{ t('知道了') }}</button>
+                <button class="btn primary small" @click="openRules">{{ t('添加规则') }}</button>
+              </div>
+            </div>
+          </Transition>
+        </div>
+        <p class="mode-hint faint">
+          {{ routeMode === 'global' ? t('全部流量走代理') : routeMode === 'rule' ? t('国内直连，其余走代理') : t('不使用代理') }}
+        </p>
       </div>
 
       <div>
@@ -234,16 +276,16 @@ onUnmounted(() => {
       <Card :title="t('快捷操作')" :index="3">
         <div class="actions">
           <button class="action" @click="importClipboard">
-            <Icon name="clipboard" :size="20" /><span>{{ t('从剪贴板导入') }}</span>
+            <Icon name="clipboard" :size="17" /><span>{{ t('从剪贴板导入') }}</span>
           </button>
           <button class="action" @click="updateAll">
-            <Icon name="refresh" :size="20" /><span>{{ t('更新全部订阅') }}</span>
+            <Icon name="refresh" :size="17" /><span>{{ t('更新全部订阅') }}</span>
           </button>
           <button class="action" :disabled="!state.profiles.length" @click="testCurrentGroup">
-            <Icon name="zap" :size="20" /><span>{{ t('测试当前分组') }}</span>
+            <Icon name="zap" :size="17" /><span>{{ t('测试当前分组') }}</span>
           </button>
           <button class="action" @click="run(() => api.openDataDir())">
-            <Icon name="folder" :size="20" /><span>{{ t('打开数据目录') }}</span>
+            <Icon name="folder" :size="17" /><span>{{ t('打开数据目录') }}</span>
           </button>
         </div>
       </Card>
@@ -255,6 +297,21 @@ onUnmounted(() => {
         <div ref="logBox" class="mini-log mono">
           <div v-for="(l, i) in recentLogs" :key="i" class="ellipsis">{{ l }}</div>
           <div v-if="!recentLogs.length" class="faint">{{ t('暂无日志') }}</div>
+        </div>
+        <div class="log-foot">
+          <Transition name="msg">
+            <span v-if="message" :key="message.seq" class="msg" :class="message.kind" role="status" :title="message.text">
+              <Icon v-if="message.kind === 'ok'" name="check" :size="13" :stroke="2.6" />
+              <Icon v-else-if="message.kind === 'bad'" name="warn" :size="13" />
+              <span class="ellipsis">{{ message.text }}</span>
+              <template v-if="message.kind === 'bad'">
+                <button class="msg-link" @click="state.page = 'logs'">{{ t('查看日志') }}</button>
+                <button class="msg-x" :title="t('关闭')" @click="message = null"><Icon name="close" :size="12" /></button>
+              </template>
+            </span>
+          </Transition>
+          <span class="spacer" />
+          <ExitPill v-if="running" />
         </div>
       </Card>
     </main>
@@ -381,12 +438,12 @@ onUnmounted(() => {
 .stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px 16px;
+  gap: 9px 16px;
 }
 .stat {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 .stat span {
   font-size: 12px;
@@ -405,14 +462,13 @@ onUnmounted(() => {
   gap: 10px;
 }
 .action {
-  height: 76px;
+  height: 46px;
   border-radius: var(--radius);
   border: 1px solid var(--line);
   background: transparent;
   color: var(--text-2);
   font: inherit;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -466,5 +522,128 @@ onUnmounted(() => {
 }
 .mini-log > div {
   height: 20px;
+}
+/* connect results (left) and the exit pill (right) share one row, which is
+   always there so the log above does not jump */
+.log-foot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  margin-top: 6px;
+}
+.msg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--good) 13%, var(--card));
+  color: var(--good);
+}
+.msg.bad {
+  background: color-mix(in srgb, var(--bad) 12%, var(--card));
+  color: var(--bad);
+  padding-right: 5px;
+}
+.msg.plain {
+  background: var(--hover);
+  color: var(--text-2);
+}
+.msg-link,
+.msg-x {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.msg-link {
+  text-decoration: underline;
+}
+.msg-x {
+  display: grid;
+  place-items: center;
+}
+.msg-x:hover {
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+}
+.msg-enter-active,
+.msg-leave-active {
+  transition: opacity 0.22s, transform 0.22s;
+}
+.msg-leave-active {
+  position: absolute;
+  left: 0;
+  max-width: 60%;
+}
+.msg-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.msg-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.mode-wrap {
+  position: relative;
+}
+.mode-hint {
+  margin: 6px 4px 0;
+  font-size: 11.5px;
+}
+.rule-tip {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--accent-line);
+  box-shadow: var(--shadow-hover);
+  font-size: 12.5px;
+}
+.rule-tip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  background: var(--card);
+  border-left: 1px solid var(--accent-line);
+  border-top: 1px solid var(--accent-line);
+  transform: translateX(-50%) rotate(45deg);
+}
+.rule-tip p {
+  margin: 4px 0 0;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+.rule-tip-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+}
+.pop-enter-active,
+.pop-leave-active {
+  transition: opacity 0.2s, transform 0.2s;
+}
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>

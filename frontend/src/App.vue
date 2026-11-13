@@ -4,6 +4,7 @@ import TitleBar from './components/TitleBar.vue'
 import Toasts from './components/Toasts.vue'
 import DialogHost from './components/DialogHost.vue'
 import CountryNotice from './components/CountryNotice.vue'
+import LockScreen from './components/LockScreen.vue'
 import Home from './views/Home.vue'
 import Nodes from './views/Nodes.vue'
 import Connections from './views/Connections.vue'
@@ -13,6 +14,7 @@ import { init, settings, state } from './state'
 import { setLang } from './i18n'
 import { rt } from './api'
 import { toast } from './util'
+import { applyLevel } from './theme'
 
 const pages = { home: Home, nodes: Nodes, connections: Connections, logs: Logs, settings: Settings }
 const ready = ref(false)
@@ -32,11 +34,14 @@ watchEffect(() => {
 })
 
 watchEffect(() => {
-  const s = settings.value
+  // while the appearance is being edited it follows the sliders at once,
+  // ahead of the (debounced) save
+  const s = settings.value && { ...settings.value, ...(state.look ?? {}) }
   const root = document.documentElement
   const dark = s?.theme === 'dark' || (s?.theme !== 'light' && systemDark.value)
   root.classList.toggle('dark', dark)
   if (s?.accentColor) root.style.setProperty('--accent', s.accentColor)
+  applyLevel(root, dark, dark ? s?.darkLevel ?? 60 : s?.lightLevel ?? 0)
 })
 
 onMounted(async () => {
@@ -65,6 +70,7 @@ onMounted(async () => {
     <Toasts />
     <DialogHost />
     <CountryNotice />
+    <LockScreen v-if="ready && state.app?.locked" />
   </div>
 </template>
 

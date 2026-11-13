@@ -307,27 +307,6 @@ func WaitPid(pid int) {
 	windows.WaitForSingleObject(h, 10_000)
 }
 
-const runKey = `Software\Microsoft\Windows\CurrentVersion\Run`
-
-func SetAutoStart(name string, enable bool) error {
-	k, _, err := registry.CreateKey(registry.CURRENT_USER, runKey, registry.SET_VALUE)
-	if err != nil {
-		return err
-	}
-	defer k.Close()
-	if !enable {
-		if err := k.DeleteValue(name); err != nil && err != registry.ErrNotExist {
-			return err
-		}
-		return nil
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	return k.SetStringValue(name, `"`+exe+`" --minimized`)
-}
-
 var killJob windows.Handle
 
 func init() {

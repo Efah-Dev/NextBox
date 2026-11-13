@@ -20,7 +20,7 @@ func relay(t *testing.T, bin string) (int, *API) {
 	port, _ := FreePort()
 	apiPort, _ := FreePort()
 	api := NewAPI("127.0.0.1:"+strconv.Itoa(apiPort), "s")
-	p, err := Start(context.Background(), bin, t.TempDir(), "relay.json", map[string]any{
+	p, err := Start(context.Background(), bin, t.TempDir(), map[string]any{
 		"log":       map[string]any{"level": "error"},
 		"inbounds":  []any{map[string]any{"type": "mixed", "listen": "127.0.0.1", "listen_port": port}},
 		"outbounds": []any{map[string]any{"type": "direct"}},

@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"nextbox/internal/config"
 	"nextbox/internal/core"
 	"nextbox/internal/logfile"
 	"nextbox/internal/store"
@@ -36,11 +37,16 @@ type App struct {
 	proc         *core.Process
 	runningID    int64
 	loaded       map[int64]loadedNode // nodes in the running core, by profile id
+	nodeTags     map[int64]string     // outbound tags of every node in the running core
+	policyTags   map[int64]string     // outbound tags of the policy groups in the running core
 	startedAt    time.Time
 	sysProxyAddr string
 	stopTraffic  context.CancelFunc
 	testCancel   context.CancelFunc
 	tunActive    bool
+	exit         ExitInfo // see exit.go
+	exitMu       sync.Mutex
+	autoStarted  bool                           // started by Windows (--minimized)
 	fileLog      atomic.Pointer[logfile.Writer] // nil while file logging is off
 	quitting     bool                           // set by Quit so the close handler lets the window go
 
@@ -58,7 +64,7 @@ func NewApp() *App {
 
 func (a *App) dataDir() string    { return filepath.Join(a.baseDir, "config") }
 func (a *App) runDir() string     { return filepath.Join(a.dataDir(), "run") }
-func (a *App) testDir() string    { return filepath.Join(a.dataDir(), "test") }
+func (a *App) cacheDir() string   { return filepath.Join(a.dataDir(), "cache") } // latency tests
 func (a *App) ruleSetDir() string { return filepath.Join(a.dataDir(), "rule-set") }
 func (a *App) logDir() string     { return filepath.Join(a.dataDir(), "logs") }
 func (a *App) corePath() string   { return filepath.Join(a.baseDir, "core", sys.CoreBinaryName()) }
@@ -89,6 +95,8 @@ func (a *App) startup(ctx context.Context) {
 
 	// A crash may have left the system proxy pointing at us.
 	sys.ClearSystemProxy(proxyAddr(s))
+	sys.SetProxyCleanup("")
+	a.removeLeftovers()
 
 	a.log("NextBox " + Version + i18n.T(" 已启动"))
 	if _, err := os.Stat(a.corePath()); err != nil {
@@ -98,7 +106,8 @@ func (a *App) startup(ctx context.Context) {
 	// timeout) is only logged, connecting simply skips the affected rules.
 	go a.ensureRuleSets()
 	go a.backgroundLoop(ctx)
-	if s.ConnectOnStart && st.SelectedID() != 0 {
+	sys.OnSessionEnd(a.onSessionEnd)
+	if (s.ConnectOnStart || (a.autoStarted && s.AutoStartConnect)) && st.SelectedID() != 0 {
 		go func() {
 			if err := a.Connect(); err != nil {
 				a.log(i18n.T("自动连接失败: ") + err.Error())
@@ -174,6 +183,8 @@ type StateInfo struct {
 	DataDir        string         `json:"dataDir"`
 	Settings       store.Settings `json:"settings"`
 	Groups         []store.Group  `json:"groups"`
+	Locked         bool           `json:"locked"`     // the node list waits for its password
+	Encryption     string         `json:"encryption"` // store.Encrypt*
 }
 
 func (a *App) GetState() StateInfo {
@@ -199,6 +210,8 @@ func (a *App) GetState() StateInfo {
 	info.DataDir = a.dataDir()
 	info.Settings = a.store.Settings()
 	info.Groups = a.store.Groups()
+	info.Locked = a.store.Locked()
+	info.Encryption = a.store.Encryption()
 	return info
 }
 
@@ -222,21 +235,22 @@ func (a *App) SaveSettings(s store.Settings) error {
 		return err
 	}
 	s = a.store.Settings()
-	if old.AutoStart != s.AutoStart {
-		if err := sys.SetAutoStart("NextBox", s.AutoStart); err != nil {
-			a.log(i18n.T("设置开机自启失败: ") + err.Error())
-		}
+	if old.AutoStart != s.AutoStart || (s.AutoStart && old.TunEnabled != s.TunEnabled) {
+		a.applyAutoStart(s)
 	}
 	i18n.SetLang(s.Language)
 	a.applyLogFile(old, s)
 	if old.CountrySource != s.CountrySource {
 		go a.locateServers(nil, false)
 	}
+	if !sameJSON(config.RequiredRuleSets(old), config.RequiredRuleSets(s)) {
+		go a.ensureRuleSets() // for the rule tester, and a faster connect
+	}
 	defer a.emitState()
 	if !a.isRunning() {
 		return nil
 	}
-	if coreSettings(old) != coreSettings(s) {
+	if !sameJSON(coreSettings(old), coreSettings(s)) {
 		return a.restartIfRunning()
 	}
 	if old.SystemProxy != s.SystemProxy {
@@ -248,10 +262,12 @@ func (a *App) SaveSettings(s store.Settings) error {
 // coreSettings keeps only the fields that end up in the sing-box config.
 func coreSettings(s store.Settings) store.Settings {
 	s.Theme, s.AccentColor, s.Language = "", "", ""
+	s.LightLevel, s.DarkLevel, s.RecentColors = 0, 0, nil
+	s.AutoStartConnect = false
 	s.TestURL, s.TestTimeout, s.TestConcurrency = "", 0, 0
 	s.SubUserAgent, s.SubUpdateByProxy = "", false
 	s.SubAutoUpdate, s.SubUpdateHours, s.AutoCheckUpdate = false, 0, false
-	s.CountrySource, s.CountryNoticeShown = "", false
+	s.CountrySource, s.CountryNoticeShown, s.RuleTipShown = "", false, false
 	s.ConnectOnStart, s.AutoStart, s.CloseToTray, s.SystemProxy = false, false, false, false
 	s.LogToFile, s.LogFileMaxMB, s.LogKeepDays, s.LogViewLimit = false, 0, 0, 0
 	return s

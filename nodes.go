@@ -319,7 +319,7 @@ func (a *App) TestLatency(ids []int64, mode string) error {
 			Result: func(r core.LatencyResult) {
 				now := time.Now().Unix()
 				if !r.Skipped {
-					a.store.SetLatency(r.ID, r.Latency, r.Error, now)
+					a.store.SetLatency(r.ID, r.Latency, r.Error, now, r.Kind)
 				}
 				if r.Exit != nil {
 					a.store.SetCountry(r.ID, r.Exit.Country, r.Exit.IP, store.CountryExit, now)
@@ -330,10 +330,32 @@ func (a *App) TestLatency(ids []int64, mode string) error {
 			Locate: a.wantsExitLookup,
 		}
 		go a.locateServers(idsOf(nodes), false)
-		if mode == "tcp" {
-			core.TCPPing(ctx, s, nodes, progress)
-			return
+		base := progress // the wrappers below must not call themselves
+		withKind := func(kind string) core.Progress {
+			p := base
+			p.Result = func(r core.LatencyResult) {
+				r.Kind = kind
+				base.Result(r)
+			}
+			return p
 		}
+		if mode == "tcp" {
+			// nodes a TCP handshake cannot measure get a URL test instead
+			var tcp, url []store.Profile
+			for _, n := range nodes {
+				if core.URLOnly(n) {
+					url = append(url, n)
+				} else {
+					tcp = append(tcp, n)
+				}
+			}
+			core.TCPPing(ctx, s, tcp, withKind("tcp"))
+			nodes = url
+			if len(nodes) == 0 {
+				return
+			}
+		}
+		progress = withKind("url")
 		// a chain proxy with a missing member would fail the whole batch
 		usable := nodes[:0:0]
 		for _, n := range nodes {
@@ -344,7 +366,8 @@ func (a *App) TestLatency(ids []int64, mode string) error {
 			}
 			usable = append(usable, n)
 		}
-		core.TestURL(ctx, a.corePath(), a.testDir(), s, usable, progress)
+		core.TestURL(ctx, a.corePath(), a.cacheDir(), s, usable, progress)
+		a.clearCache()
 	}()
 	return nil
 }

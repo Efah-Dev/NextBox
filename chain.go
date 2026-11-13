@@ -189,12 +189,13 @@ func (a *App) TestChain(ids []int64) (core.LatencyResult, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, time.Duration(s.TestTimeout)*time.Millisecond*3+15*time.Second)
 	defer cancel()
 	result := core.LatencyResult{ID: probeID, Latency: -1, Error: i18n.T("超时")}
-	core.TestURL(ctx, a.corePath(), filepath.Join(a.testDir(), "chain"), s, []store.Profile{probe}, core.Progress{
+	core.TestURL(ctx, a.corePath(), filepath.Join(a.cacheDir(), "chain"), s, []store.Profile{probe}, core.Progress{
 		Start:  func(int64) {},
 		Result: func(r core.LatencyResult) { result = r },
 		Member: a.store.Profile,
 		Locate: func(int64) bool { return s.CountrySource == store.CountryExit },
 	})
+	a.clearCache()
 	return result, nil
 }
 
