@@ -262,6 +262,18 @@ const moreItems = computed<MenuItem[]>(() => [
   { label: t('删除分组'), icon: 'trash', danger: true, action: deleteGroup },
 ])
 
+// ---- copy a node's address (without the port) ----
+const copiedId = ref(0)
+let copiedTimer = 0
+async function copyServer(p: Profile) {
+  const host = String(p.outbound.server)
+  if (!(await rt.clipboardSet(host))) return toast(t('复制失败'), 'error')
+  copiedId.value = p.id
+  clearTimeout(copiedTimer)
+  copiedTimer = window.setTimeout(() => (copiedId.value = 0), 1500)
+  toast(t('已复制 {0}', host), 'success')
+}
+
 // ---- single node test (the bolt on each row) ----
 
 // Protocols on top of UDP (QUIC) cannot be reached by a TCP handshake, and a
@@ -397,7 +409,19 @@ function boltTitle(p: Profile) {
           <span v-else-if="p.type === 'chain'" class="ellipsis node-route" :title="p.members?.map((m) => m.name).join(' → ')">
             <template v-for="(m, k) in p.members" :key="k"><span v-if="k" class="sep">→</span>{{ bareName(m.name) }}</template>
           </span>
-          <span v-else class="faint mono ellipsis node-server">{{ serverOf(p.outbound) }}</span>
+          <span v-else class="node-server">
+            <span class="faint mono ellipsis">{{ serverOf(p.outbound) }}</span>
+            <button
+              v-if="p.outbound?.server"
+              class="btn ghost small icon copy-ip"
+              :class="{ done: copiedId === p.id }"
+              :title="t('复制地址')"
+              @click.stop="copyServer(p)"
+              @dblclick.stop
+            >
+              <Icon :name="copiedId === p.id ? 'check' : 'copy'" :size="13" />
+            </button>
+          </span>
           <span v-if="latencyTest.running.has(p.id)" class="lat" :title="t('测速中')"><span class="probe-bars"><i /><i /><i /><i /></span></span>
           <span v-else-if="latencyTest.waiting.has(p.id)" class="lat lat-none waiting">{{ t('等待中') }}</span>
           <span v-else class="lat" :class="latencyClass(p.latency)" :title="p.latencyError">
@@ -609,6 +633,30 @@ function boltTitle(p: Profile) {
 }
 .node-server {
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.copy-ip {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-3);
+  opacity: 0.45;
+  transition: opacity 0.15s, color 0.15s;
+}
+.node:hover .copy-ip,
+.copy-ip:focus-visible {
+  opacity: 1;
+}
+.copy-ip:hover {
+  color: var(--accent);
+}
+.copy-ip.done {
+  opacity: 1;
+  color: var(--good);
 }
 .node-route {
   font-size: 12px;

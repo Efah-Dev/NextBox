@@ -440,15 +440,20 @@ body {
 .form-row:last-child {
   border-bottom: none;
 }
+/* room for a 20-character hint on one line; longer hints wrap evenly */
 .form-row > .label {
-  width: 150px;
+  width: 220px;
   flex-shrink: 0;
+}
+.modal .form-row > .label {
+  width: 130px;
 }
 .form-row > .label .hint {
   display: block;
   font-size: 11px;
   color: var(--text-3);
   margin-top: 2px;
+  text-wrap: balance;
 }
 .form-row > .control {
   flex: 1;

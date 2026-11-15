@@ -200,9 +200,10 @@ onUnmounted(() => {
             </div>
           </Transition>
         </div>
-        <p class="mode-hint faint">
-          {{ routeMode === 'global' ? t('全部流量走代理') : routeMode === 'rule' ? t('国内直连，其余走代理') : t('不使用代理') }}
-        </p>
+        <button v-if="routeMode === 'rule'" class="mode-hint link" :title="t('打开分流规则')" @click="openRules">
+          {{ t('按自定义规则分流') }}<Icon name="chevron" :size="11" />
+        </button>
+        <p v-else class="mode-hint faint">{{ routeMode === 'global' ? t('全部流量走代理') : t('不使用代理') }}</p>
       </div>
 
       <div>
@@ -600,6 +601,24 @@ onUnmounted(() => {
 .mode-hint {
   margin: 6px 4px 0;
   font-size: 11.5px;
+}
+.mode-hint.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  margin-left: -2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.mode-hint.link:hover {
+  color: var(--accent);
+  background: var(--hover);
 }
 .rule-tip {
   position: absolute;

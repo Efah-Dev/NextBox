@@ -3,16 +3,21 @@ package link
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"nextbox/internal/i18n"
+	"sort"
 	"strconv"
 	"strings"
 )
 
 // Export converts a sing-box outbound back to a share link.
 func Export(name string, ob map[string]any) (string, error) {
+	if _, ok := ob["shadowtls"]; ok {
+		return "", errors.New(i18n.T("带 ShadowTLS 的节点没有通用的分享链接格式"))
+	}
 	typ := str(ob, "type")
 	server := str(ob, "server")
 	port := num(ob, "server_port")
@@ -116,6 +121,39 @@ func Export(name string, ob map[string]any) (string, error) {
 			auth = url.UserPassword(user, str(ob, "password")).String() + "@"
 		}
 		return scheme + "://" + auth + hostport + frag, nil
+
+	case "naive":
+		scheme := "naive+https"
+		if boolean(ob, "quic") {
+			scheme = "naive+quic"
+		}
+		auth := ""
+		if user := str(ob, "username"); user != "" {
+			auth = url.UserPassword(user, str(ob, "password")).String() + "@"
+		}
+		q := url.Values{}
+		if t := obj(ob, "tls"); t != nil {
+			if sni := str(t, "server_name"); sni != "" && sni != str(ob, "server") {
+				q.Set("sni", sni)
+			}
+		}
+		if h := obj(ob, "extra_headers"); len(h) > 0 {
+			keys := make([]string, 0, len(h))
+			for k := range h {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			lines := make([]string, 0, len(keys))
+			for _, k := range keys {
+				lines = append(lines, k+": "+fmt.Sprint(h[k]))
+			}
+			q.Set("extra-headers", strings.Join(lines, "\r\n"))
+		}
+		tail := ""
+		if len(q) > 0 {
+			tail = "?" + q.Encode()
+		}
+		return scheme + "://" + auth + hostport + tail + frag, nil
 
 	case "http":
 		scheme := "http"

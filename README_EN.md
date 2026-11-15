@@ -36,21 +36,21 @@ with a rewritten launcher-style interface, the current sing-box configuration fo
 
 ## ✨ Features
 
-- 🔌 **Protocols**: Shadowsocks, VMess, VLESS (incl. Reality / Vision), Trojan, Hysteria2, TUIC, AnyTLS, SOCKS, HTTP
+- 🔌 **Protocols**: Shadowsocks (incl. ShadowTLS), VMess, VLESS (incl. Reality / Vision), Trojan, Hysteria2, TUIC, AnyTLS, NaiveProxy, SOCKS, HTTP
 - 📡 **Subscriptions**: Base64 link lists, Clash / Clash.Meta YAML, sing-box JSON; shows used traffic and expiry date; optional automatic updates at an interval you choose
 - 🗂️ **Nodes**: form editor for common fields, or edit the full sing-box outbound JSON; drag to reorder; search, sort, bulk delete; export share links
 - 🚩 **Flags and country search**: a flag in front of every node, by exit IP by default (checked during URL tests) or by server IP; searching "Hong Kong" or "香港" finds HK, 🇭🇰 and Hong Kong nodes alike
 - ⛓️ **Chain proxies**: send traffic through 2 to 8 nodes in a row, e.g. an airport node as the entry and your own VPS as the exit; members come from any group, can be reordered by dragging, and the whole chain can be tested before saving
 - 🔀 **Switch nodes without dropping connections**: the nodes of a group are loaded into the core together, so switching does not restart it and open connections (a running download, for example) are not cut
 - ⚡ **Latency test**: URL test (round trip on an established connection, same method as NekoBox) and TCP test; a bolt button on every node tests just that node; protocols over UDP (Hysteria2, TUIC …) and chain proxies always use a URL test; configurable URL, timeout and concurrency
-- 🧭 **Routing**: global (the default, nothing to set up) / rule-based (bypasses mainland China by default) / direct. Rule-based mode adds scenario switches (AI services, streaming, game downloads direct …) and your own rules, checked in order (site categories, domains, IPs, programs), each sending traffic to the current node, direct, blocked or a policy group; drag to reorder or edit as text; the *Rule tester* shows which rule an address matches and where it goes
+- 🧭 **Routing**: global (the default, nothing to set up) / rule-based (bypasses mainland China by default) / direct. In rule-based mode the *Route* shows the order every connection is checked in as one line: ad blocking, the scenarios (AI services, streaming, game downloads direct, bypass mainland China) and your own rules (site categories, domains, IPs, programs) are steps you can drag into any order; each rule sends traffic to the current node, direct, blocked or a policy group, and can also be edited as text; test a website or IP and the route lights up step by step to the one that matches. The *Cards* style of v2.0 is still available; both styles have *Reset*, and the route can hide the scenes that are off
 - 🧩 **Policy groups**: group nodes by region, name keywords or by hand, use the fastest automatically or pick one, and send different sites through different groups (YouTube via Japan, Google via the US); groups by region or keyword pick up new nodes after subscription updates
 - 🚫 **Ad blocking**: works in every routing mode
 - 📍 **Exit info**: once connected, the home page shows the node's flag, exit IP (masked by default) and a status light, checked again regularly
 - 🖥️ **System proxy**: set automatically on connect, including dial-up (PPPoE) and Windows VPN connections; restored on disconnect, exit and core crash; cleared first thing at Windows logoff / shutdown, and cleared at the next logon if NextBox was killed before it could
-- 🚀 **Autostart**: Settings shows whether Windows will really start NextBox; a disabled entry, a moved program and similar problems are explained with a one-click fix; with TUN mode NextBox starts through a scheduled task as administrator; optionally connects to the last node after starting with Windows
-- 🛡️ **TUN mode**: captures all traffic (requires administrator; one-click "Restart as administrator"); optional FakeIP with an editable exclusion list
-- 💾 **Backup & encryption**: export / import nodes and subscriptions, routing rules and other settings separately, encrypted with a password (AES-256, the same format as the Android version); the node list on disk can be encrypted too (tied to your Windows account, or with a start-up password); the core configuration is no longer written to disk
+- 🚀 **Autostart**: Settings shows whether Windows will really start NextBox; a disabled entry, a moved program and similar problems are explained with a one-click fix; with TUN mode NextBox starts through a scheduled task as administrator; optionally connects to the last node after starting with Windows and shows the window when that fails; the last starts are recorded, so a start blocked by security software shows up
+- 🛡️ **TUN mode**: captures all traffic (requires administrator; one-click "Restart as administrator"); *TUN exclusions* keep the networks of Tailscale, ZeroTier and the like out of TUN, added in one click from an adapter; optional FakeIP with an editable exclusion list
+- 💾 **Backup & encryption**: export / import nodes and subscriptions, routing rules and other settings separately, encrypted with a password (AES-256, the same format as the Android version; Android-only rules and preferences are kept); the node list on disk can be encrypted too (tied to your Windows account, or with a start-up password); the core configuration is no longer written to disk
 - 🌍 **DNS**: remote DNS through the proxy, direct DNS locally; UDP / TCP / DoT / DoQ / DoH / DoH3
 - 📌 **Tray**: keeps running in the tray after closing the window; start / stop, switch node, route mode and TUN from the menu. Green dot = system proxy, red dot = TUN
 - 📜 **Connections & logs**: live connection list (target, process, rule, speed); log viewer with filters; optional log files with size limit and retention
@@ -73,7 +73,7 @@ and on up-to-date Windows 10).
 > Switching nodes without dropping connections, automatic subscription updates, the update check and the
 > system proxy for dial-up connections are available from v1.1.0 on; chain proxies, drag to reorder and
 > flags with country search from v1.2.0 on; policy groups, the new routing rules, backup & encryption, FakeIP
-> and the autostart check from v2.0.0 on.
+> and the autostart check from v2.0.0 on; NaiveProxy, the reorderable route and TUN exclusions from v2.1.0 on.
 
 ## 🚀 Quick start
 
@@ -91,13 +91,14 @@ The release package ships `core/sing-box.exe`, built from **unmodified** officia
 | Version | **sing-box 1.14.4** |
 | Branch | **`stable`** (official stable release, tag [`v1.14.4`](https://github.com/SagerNet/sing-box/tree/v1.14.4)) |
 | Built with | Go 1.27.3, `windows/amd64`, CGO disabled |
-| Build tags | `with_gvisor, with_quic, with_dhcp, with_wireguard, with_utls, with_acme, with_clash_api, with_tailscale, with_ccm, with_ocm, with_cloudflared, with_usbip, with_openvpn, with_openconnect, badlinkname, tfogo_checklinkname0` |
+| Build tags | `with_gvisor, with_quic, with_dhcp, with_wireguard, with_utls, with_acme, with_clash_api, with_tailscale, with_ccm, with_ocm, with_cloudflared, with_naive_outbound, with_purego, with_usbip, with_openvpn, with_openconnect, badlinkname, tfogo_checklinkname0` |
 
-These are the official Windows release tags, except `with_naive_outbound` / `with_purego`, which need an
-extra cronet DLL. The core version and tags are also shown in **Settings → About**.
+These are exactly the official Windows release tags. `libcronet.dll` next to it is the network library NaiveProxy
+needs ([cronet-go](https://github.com/SagerNet/cronet-go), the version the sing-box source pins, as in the official
+package). The core version and tags are also shown in **Settings → About**.
 
 NextBox generates configurations in the sing-box **1.12+** format, so you can replace the core with any
-newer official release by dropping another `sing-box.exe` into `core/`.
+newer official release by dropping another `sing-box.exe` into `core/` (with its `libcronet.dll` for NaiveProxy).
 
 ## 💾 Where data is stored
 
@@ -110,6 +111,8 @@ Everything lives next to `NextBox.exe` (portable); to move NextBox to another PC
 | `config/rule-set/` | Downloaded geosite / geoip rule-sets |
 | `config/logs/` | Log files (only when *Log to file* is enabled) |
 | `config/cache/` | Temporary files of latency tests, emptied afterwards |
+| `config/autostart.json` | What happened the last times Windows started NextBox |
+| `config/android.json` | Android preferences from an imported backup, exported again with the settings |
 
 With *Encrypt nodes and subscriptions* set to *Tied to your Windows account*, `profiles.json` only opens under
 this Windows account on this PC. Export a backup in Settings → Data & backup before moving to another PC.
@@ -176,6 +179,17 @@ opens (when started with Windows it waits on the unlock screen); a forgotten pas
 
 **Autostart does not work.** Settings → General → *Start with Windows* shows the result of a check. A
 disabled entry, a moved program or TUN mode without administrator rights are explained; click the fix button.
+Below, *Recent starts with Windows* lists what happened after each boot: "Not started after this boot" usually
+means security software blocked the startup entry. When connecting after a start with Windows fails, the window
+opens with the reason.
+
+**TUN mode breaks Tailscale / ZeroTier.** Add their networks under Settings → TUN mode → *TUN exclusions*
+(Tailscale uses `100.64.0.0/10`, or click *Add from an adapter*); those addresses then bypass NextBox.
+
+**How do I change the order of the rules?** Drag the handle of a step in the route under Settings → Routing
+rules. The first step (LAN) and the last one (everything else) are fixed; everything in between can be moved.
+Prefer the scene cards and rule list of v2.0? Choose *Cards* under *Style*. Rules in a mess? *Reset* at the bottom
+starts over.
 
 **What is FakeIP?** TUN mode only: proxied domains first get a placeholder 198.18.x.x address, which makes
 first connections faster and keeps DNS from leaking. After disconnecting, a few programs may keep the
@@ -198,7 +212,7 @@ wails build
 ```
 
 Build the sing-box core (expects the sing-box source in `../sing-box-stable`, output goes to
-`build/bin/core/sing-box.exe`):
+`build/bin/core/sing-box.exe`, together with the `libcronet.dll` NaiveProxy needs):
 
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/build-core.ps1
@@ -221,6 +235,8 @@ main.go, app.go, support.go   Wails entry point and the API exposed to the UI
 background.go                 Automatic subscription updates, update check
 policy.go, backup.go          Policy groups and the rule tester, backups and encryption
 exit.go, startup.go           Exit IP checks; autostart check, cleanup at shutdown
+autostart_log.go              Records of every start by Windows
+tunexclude.go                 TUN exclusions: checks and the adapter list
 tray.go                       System tray
 cmd/genicon/                  Generates the application icons
 internal/

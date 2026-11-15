@@ -24,6 +24,8 @@ var sampleLinks = []string{
 	"tuic://11111111-2222-3333-4444-555555555555:pass@example.com:443?congestion_control=bbr#tuic",
 	"anytls://pass@example.com:443?sni=example.com#anytls",
 	"socks5://user:pw@127.0.0.1:1080#socks",
+	"naive+https://user:pass@naive.example.com:443?extra-headers=X-A%3A%201#naive-h2",
+	"naive+quic://user:pass@naive.example.com:8443#naive-h3",
 }
 
 // singBox returns the core built by scripts/build-core.ps1, or skips the test.

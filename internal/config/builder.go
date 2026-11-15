@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"nextbox/internal/i18n"
 	"os"
@@ -260,6 +261,9 @@ func Build(in Input) (map[string]any, error) {
 			"strict_route":   s.TunStrictRoute,
 			"stack":          s.TunStack,
 		})
+		if excl, _ := ParseCIDRs(s.TunExclude); len(excl) > 0 {
+			inbounds[len(inbounds)-1].(map[string]any)["route_exclude_address"] = excl
+		}
 	}
 
 	// ---- route ----
@@ -272,13 +276,14 @@ func Build(in Input) (map[string]any, error) {
 		routeRules = append(routeRules, map[string]any{"action": "sniff"})
 	}
 	routeRules = append(routeRules, map[string]any{"protocol": "dns", "action": "hijack-dns"})
-	privateDone := false
+	// LAN addresses first, then the excluded ranges (direct as well, for the
+	// system proxy; in TUN mode they do not reach the core at all), then the
+	// steps in the user's order
+	routeRules = append(routeRules, map[string]any{"ip_is_private": true, "outbound": TagDirect})
+	if excl, _ := ParseCIDRs(s.TunExclude); len(excl) > 0 {
+		routeRules = append(routeRules, map[string]any{"ip_cidr": excl, "outbound": TagDirect})
+	}
 	for _, e := range entries {
-		// ad blocking comes before LAN addresses, everything else after
-		if e.Source != "ads" && !privateDone {
-			routeRules = append(routeRules, map[string]any{"ip_is_private": true, "outbound": TagDirect})
-			privateDone = true
-		}
 		r := e.routeRule()
 		if r == nil {
 			continue
@@ -289,9 +294,6 @@ func Build(in Input) (map[string]any, error) {
 			r["outbound"] = ob
 		}
 		routeRules = append(routeRules, r)
-	}
-	if !privateDone {
-		routeRules = append(routeRules, map[string]any{"ip_is_private": true, "outbound": TagDirect})
 	}
 	ruleSets := []any{}
 	for _, name := range RuleSets(entries) {
@@ -329,6 +331,36 @@ func Build(in Input) (map[string]any, error) {
 		},
 	}
 	return cfg, nil
+}
+
+// ParseCIDRs reads a list of IP ranges, one per line ("#" starts a
+// comment); a single address becomes a /32 or /128 range. bad lists the
+// lines that are neither, numbered from 1.
+func ParseCIDRs(text string) (out []string, bad []int) {
+	seen := map[string]bool{}
+	for i, line := range strings.Split(text, "\n") {
+		if c := strings.Index(line, "#"); c >= 0 {
+			line = line[:c]
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var v string
+		if p, err := netip.ParsePrefix(line); err == nil {
+			v = p.Masked().String()
+		} else if a, err := netip.ParseAddr(line); err == nil {
+			v = netip.PrefixFrom(a, a.BitLen()).String()
+		} else {
+			bad = append(bad, i+1)
+			continue
+		}
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out, bad
 }
 
 func fakeIPExclusions(text string) []string {
@@ -428,7 +460,7 @@ func (e *ChainError) Error() string {
 // holds the tags already taken and receives the hop tags (it may be nil).
 func Expand(p store.Profile, tag string, member func(int64) (store.Profile, bool), used map[string]bool) ([]map[string]any, error) {
 	if !p.IsChain() {
-		return []map[string]any{withTag(p.Outbound, tag)}, nil
+		return withTransport(withTag(p.Outbound, tag), used), nil
 	}
 	if len(p.Chain) < store.MinChainLength || len(p.Chain) > store.MaxChainLength {
 		return nil, &ChainError{Chain: p.Name, Msg: fmt.Sprintf(i18n.T("需要 %d 到 %d 个节点"), store.MinChainLength, store.MaxChainLength)}
@@ -459,13 +491,54 @@ func Expand(p store.Profile, tag string, member func(int64) (store.Profile, bool
 		}
 		ob := withTag(m.Outbound, hopTag)
 		delete(ob, "detour") // the chain decides how each hop is reached
+		hop := withTransport(ob, used)
 		if prev != "" {
-			ob["detour"] = prev
+			hop[0]["detour"] = prev // the first outbound of the hop dials out
 		}
-		out = append(out, ob)
+		out = append(out, hop...)
 		prev = hopTag
 	}
 	return out, nil
+}
+
+// withTransport splits a Shadowsocks node with ShadowTLS in front (the
+// "shadowtls" field written by the share-link parser) into a shadowtls
+// outbound and the shadowsocks outbound that dials through it. Other nodes
+// come back as they are. The outbound that connects first comes first.
+func withTransport(ob map[string]any, used map[string]bool) []map[string]any {
+	st, ok := ob["shadowtls"].(map[string]any)
+	if !ok {
+		return []map[string]any{ob}
+	}
+	delete(ob, "shadowtls")
+	tag, _ := ob["tag"].(string)
+	stTag := tag + " / shadowtls"
+	for used != nil && used[stTag] {
+		stTag += "'"
+	}
+	if used != nil {
+		used[stTag] = true
+	}
+	tls := map[string]any{"enabled": true}
+	if sni, _ := st["server_name"].(string); sni != "" {
+		tls["server_name"] = sni
+	}
+	if fp, _ := st["fingerprint"].(string); fp != "" {
+		tls["utls"] = map[string]any{"enabled": true, "fingerprint": fp}
+	}
+	out := map[string]any{
+		"type": "shadowtls", "tag": stTag,
+		"server": ob["server"], "server_port": ob["server_port"],
+		"version": st["version"], "tls": tls,
+	}
+	if pw, ok := st["password"]; ok {
+		out["password"] = pw
+	}
+	if d, ok := ob["detour"]; ok {
+		out["detour"] = d
+	}
+	ob["detour"] = stTag
+	return []map[string]any{out, ob}
 }
 
 func withTag(outbound map[string]any, tag string) map[string]any {

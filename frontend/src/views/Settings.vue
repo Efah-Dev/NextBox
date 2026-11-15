@@ -9,6 +9,7 @@ import AccentPicker from './settings/AccentPicker.vue'
 import DisplayLevels from './settings/DisplayLevels.vue'
 import AutoStartRow from './settings/AutoStartRow.vue'
 import RouteSection from './settings/RouteSection.vue'
+import TunExcludeRow from './settings/TunExcludeRow.vue'
 import PolicySection from './settings/PolicySection.vue'
 import BackupSection from './settings/BackupSection.vue'
 import AboutSection from './settings/AboutSection.vue'
@@ -287,6 +288,7 @@ function onScroll() {
           <div class="label">MTU</div>
           <div class="control"><input v-model.lazy.number="form.tunMtu" type="number" class="input mono" style="width: 120px" /></div>
         </div>
+        <TunExcludeRow :form="form" />
         <div class="form-row">
           <div class="label">FakeIP<span class="hint">{{ t('走代理的域名先拿到假地址，首次连接更快、DNS 不泄露') }}</span></div>
           <div class="control">

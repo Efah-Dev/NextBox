@@ -6,10 +6,11 @@ export interface Settings {
   theme: 'auto' | 'light' | 'dark'
   accentColor: string
   language: string
-  /** how far the light theme is dimmed, 0-100 (0 = brightest) */
+  /** how far the light theme is dimmed, 0-100 (20 = classic, 0 = white) */
   lightLevel: number
   /** how deep the dark theme goes, 0-100 (60 = classic, 100 = black) */
   darkLevel: number
+  themeScale: number
   recentColors?: string[]
   listenAddress: string
   mixedPort: number
@@ -21,11 +22,17 @@ export interface Settings {
   tunMtu: number
   tunFakeIp: boolean
   fakeIpExclude: string
+  /** IP ranges kept out of TUN, one per line */
+  tunExclude: string
   routeMode: 'rule' | 'global' | 'direct'
   blockAds: boolean
   rules: Rule[]
   scenes: Scene[]
   ruleSetMirror: string
+  /** look of the routing rules page */
+  routeView?: 'path' | 'cards'
+  /** hide the scenes that are switched off */
+  routeHideOff?: boolean
   remoteDns: string
   directDns: string
   enableIpv6: boolean
@@ -54,13 +61,15 @@ export interface Settings {
   findProcess: boolean
 }
 
-export type RuleKind = 'geosite' | 'suffix' | 'domain' | 'keyword' | 'regex' | 'geoip' | 'cidr' | 'process'
+export type RuleKind = 'geosite' | 'suffix' | 'domain' | 'keyword' | 'regex' | 'geoip' | 'cidr' | 'process' | 'package'
+/** places of ad blocking and of a scene among the rules (values[0] = scene id) */
+export type StepKind = 'ads' | 'scene'
 
 /** 'proxy' | 'direct' | 'block' | 'policy:<id>' */
 export type Target = string
 
 export interface Rule {
-  kind: RuleKind
+  kind: RuleKind | StepKind
   values: string[]
   target: Target
   disabled?: boolean
@@ -101,7 +110,8 @@ export interface PolicyView extends Policy {
 
 export interface RouteMatch {
   input: string
-  source: 'ads' | 'rule' | 'scene' | 'private' | 'final'
+  source: 'excluded' | 'private' | 'ads' | 'rule' | 'scene' | 'final'
+  /** the step in settings.rules, -1 when it has none */
   index: number
   scene: string
   target: Target | 'final'
@@ -122,8 +132,22 @@ export interface AutoStartStatus {
   enabled: boolean
   ok: boolean
   method: '' | 'run' | 'task'
-  problem: '' | 'missing' | 'moved' | 'disabled' | 'tun' | 'error'
+  problem: '' | 'missing' | 'moved' | 'disabled' | 'tun' | 'user' | 'error'
   detail?: string
+  /** the program sits where Windows may not find it at the next start */
+  location?: '' | 'temp' | 'removable'
+  records: AutoStartRecord[]
+}
+
+export interface AutoStartRecord {
+  at: number
+  result: 'connected' | 'failed' | 'locked' | 'noNode' | 'started' | 'missed'
+  detail?: string
+}
+
+export interface Adapter {
+  name: string
+  networks: string[]
 }
 
 export interface BackupOptions {
@@ -144,6 +168,8 @@ export interface BackupInfo {
   hasSettings: boolean
   summary: { groups: number; subscriptions: number; nodes: number; chains: number; policies: number }
   rules: number
+  /** rules by Android app, kept but only used by NextBox for Android */
+  androidRules: number
 }
 
 export interface SubscriptionInfo {
@@ -352,6 +378,8 @@ export const api = {
 
   updateRuleSets: () => call<string>('UpdateRuleSets'),
   testRoute: (input: string) => call<RouteMatch>('TestRoute', input),
+  checkCIDRs: (text: string) => call<number[]>('CheckCIDRs', text),
+  listAdapters: () => call<Adapter[]>('ListAdapters'),
   getPolicies: () => call<PolicyView[]>('GetPolicies'),
   savePolicy: (p: Policy) => call<Policy>('SavePolicy', p),
   deletePolicy: (id: number) => call<void>('DeletePolicy', id),

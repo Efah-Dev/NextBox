@@ -8,6 +8,7 @@ It includes or redistributes the following third-party software.
 | Component | Version | License | Source |
 |---|---|---|---|
 | sing-box (proxy core, `core/sing-box.exe`) | 1.14.4 (stable) | GPL-3.0-or-later, with an additional naming clause (see below) | https://github.com/SagerNet/sing-box/tree/v1.14.4 |
+| cronet-go library (`core/libcronet.dll`, used by the NaiveProxy outbound) | lib/windows_amd64 v0.0.0-20260912104006-c10c03c318db (the version sing-box 1.14.4 pins) | GPL-3.0-or-later; built from the Chromium network stack (BSD-3-Clause) | https://github.com/SagerNet/cronet-go |
 | Noto Sans SC (UI font, embedded in `NextBox.exe`) | 5.3.1 (@fontsource-variable) | SIL Open Font License 1.1 | https://github.com/notofonts/noto-cjk |
 
 `core/sing-box.exe` is built **without modification** from the official sing-box v1.14.4 source
@@ -15,6 +16,9 @@ It includes or redistributes the following third-party software.
 at the link above. The sing-box license adds: *"no derivative work may use the name or imply
 association with this application without prior consent."* NextBox is an independent project and is
 **not affiliated with or endorsed by** SagerNet or the sing-box project.
+
+`core/libcronet.dll` is copied unchanged from the cronet-go module that the sing-box source pins,
+as the official sing-box Windows release does.
 
 The full license texts are included in the release package under `licenses/`.
 

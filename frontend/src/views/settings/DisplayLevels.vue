@@ -3,7 +3,7 @@
 import { t } from '../../i18n'
 import { computed } from 'vue'
 import Icon from '../../components/Icon.vue'
-import { DARK_DEFAULT, palette, paletteVars } from '../../theme'
+import { DARK_DEFAULT, LIGHT_DEFAULT, palette, paletteVars } from '../../theme'
 
 const light = defineModel<number>('light', { required: true })
 const dark = defineModel<number>('dark', { required: true })
@@ -16,7 +16,9 @@ const darkVars = computed(() => paletteVars(palette(true, dark.value === DARK_DE
 
 // the slider shows brightness (right = brighter); the setting stores dimming
 const brightness = computed({ get: () => 100 - light.value, set: (v: number) => (light.value = 100 - v) })
-const lightLabel = computed(() => `${100 - Math.round(light.value * 0.25)}%`)
+const lightLabel = computed(() =>
+  light.value <= 6 ? t('最亮') : light.value < LIGHT_DEFAULT - 4 ? t('更亮') : light.value <= LIGHT_DEFAULT + 4 ? t('标准') : light.value < 70 ? t('偏暗') : t('深灰'),
+)
 const darkLabel = computed(() =>
   dark.value <= 20 ? t('柔和') : dark.value < DARK_DEFAULT - 5 ? t('偏浅') : dark.value <= DARK_DEFAULT + 5 ? t('标准') : dark.value < 92 ? t('更深') : t('纯黑'),
 )
@@ -27,13 +29,13 @@ const darkLabel = computed(() =>
     <div class="level">
       <div class="level-head">
         <span>{{ t('浅色亮度') }}<span class="hint">{{ t('夜里嫌太亮可以调低') }}</span></span>
-        <button v-if="light !== 0" class="btn ghost small" @click="light = 0">{{ t('恢复默认') }}</button>
+        <button v-if="light !== LIGHT_DEFAULT" class="btn ghost small" @click="light = LIGHT_DEFAULT">{{ t('恢复默认') }}</button>
       </div>
       <div class="slider">
         <Icon name="sun" :size="12" />
         <input v-model.number="brightness" type="range" min="0" max="100" step="1" :aria-label="t('浅色亮度')" />
         <Icon name="sun" :size="16" />
-        <span class="value mono">{{ lightLabel }}</span>
+        <span class="value">{{ lightLabel }}</span>
       </div>
     </div>
     <div class="level">

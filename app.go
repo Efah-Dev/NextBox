@@ -46,7 +46,9 @@ type App struct {
 	tunActive    bool
 	exit         ExitInfo // see exit.go
 	exitMu       sync.Mutex
-	autoStarted  bool                           // started by Windows (--minimized)
+	autoStarted  bool  // started by Windows (--minimized)
+	autoStartAt  int64 // when, as recorded in autostart.json
+	autoLogMu    sync.Mutex
 	fileLog      atomic.Pointer[logfile.Writer] // nil while file logging is off
 	quitting     bool                           // set by Quit so the close handler lets the window go
 
@@ -107,13 +109,40 @@ func (a *App) startup(ctx context.Context) {
 	go a.ensureRuleSets()
 	go a.backgroundLoop(ctx)
 	sys.OnSessionEnd(a.onSessionEnd)
-	if (s.ConnectOnStart || (a.autoStarted && s.AutoStartConnect)) && st.SelectedID() != 0 {
-		go func() {
-			if err := a.Connect(); err != nil {
-				a.log(i18n.T("自动连接失败: ") + err.Error())
-			}
-		}()
+	switch {
+	case a.autoStarted && st.Locked():
+		// the start-up password is needed before anything else
+		a.autoStartFailed("locked", "")
+	case a.autoStarted && s.AutoStartConnect && st.SelectedID() == 0:
+		a.autoStartFailed("noNode", "")
+	case a.autoStarted && s.AutoStartConnect:
+		a.recordAutoStart("started", "")
+		go a.autoConnect()
+	case a.autoStarted:
+		a.recordAutoStart("started", "")
+	case s.ConnectOnStart && st.SelectedID() != 0:
+		go a.autoConnect()
 	}
+	if !a.autoStarted {
+		go a.checkMissedAutoStart()
+	}
+}
+
+// autoConnect connects at start-up (连接 on start, or after a start by
+// Windows); a failure after a start by Windows shows the window.
+func (a *App) autoConnect() {
+	err := a.Connect()
+	if !a.autoStarted {
+		if err != nil {
+			a.log(i18n.T("自动连接失败: ") + err.Error())
+		}
+		return
+	}
+	if err != nil {
+		a.autoStartFailed("failed", err.Error())
+		return
+	}
+	a.recordAutoStart("connected", "")
 }
 
 // beforeClose hides the window to the tray instead of quitting, unless the
@@ -147,7 +176,19 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 }
 
-func (a *App) onSecondInstance(data options.SecondInstanceData) { a.ShowWindow() }
+// onSecondInstance shows the window when NextBox is opened again, except for
+// the start by Windows arriving after the user opened it by hand.
+func (a *App) onSecondInstance(data options.SecondInstanceData) {
+	for _, arg := range data.Args {
+		if arg == "--minimized" {
+			if a.autoStartAt == 0 {
+				a.recordAutoStart("started", i18n.T("NextBox 已经在运行"))
+			}
+			return
+		}
+	}
+	a.ShowWindow()
+}
 
 // proxyModeLocked reports how traffic is captured: "tun", "system" or "".
 func (a *App) proxyModeLocked() string {

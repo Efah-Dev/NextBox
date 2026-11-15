@@ -35,21 +35,21 @@ NextBox 是 [sing-box](https://github.com/SagerNet/sing-box) 代理内核的桌�
 
 ## ✨ 功能
 
-- 🔌 **协议**：Shadowsocks、VMess、VLESS（含 Reality / Vision）、Trojan、Hysteria2、TUIC、AnyTLS、SOCKS、HTTP
+- 🔌 **协议**：Shadowsocks（含 ShadowTLS）、VMess、VLESS（含 Reality / Vision）、Trojan、Hysteria2、TUIC、AnyTLS、NaiveProxy、SOCKS、HTTP
 - 📡 **订阅**：Base64 链接列表、Clash / Clash.Meta YAML、sing-box JSON；显示已用流量和到期时间；可按设定的间隔自动更新
 - 🗂️ **节点**：表单编辑常用字段，或直接编辑完整的 sing-box 出站 JSON；拖动排序；搜索、排序、批量删除；导出分享链接
 - 🚩 **国旗与按国家搜索**：每个节点前显示国旗，默认按落地 IP 判断（URL 测试时顺便检测），也可以改为按服务器 IP；搜“香港”就能找到 HK、🇭🇰、Hong Kong 等节点
 - ⛓️ **链式代理**：让流量依次经过 2 到 8 个节点，例如机场节点做入口、自建 VPS 落地；成员可以来自任意分组，可拖动调整顺序，保存前可测试整条链路
 - 🔀 **切换节点不断流**：同一分组的节点一次载入内核，切换时不重启内核，已建立的连接（例如正在进行的下载）不会中断
 - ⚡ **测速**：URL 测试（与 NekoBox 相同：先建立连接，再测往返时间）和 TCP 测试；每个节点右侧的闪电按钮可单独测速；基于 UDP 的协议（Hysteria2、TUIC 等）和链式代理自动改用 URL 测试；可配置测试地址、超时、并发数
-- 🧭 **路由**：全局代理（默认，无需配置）/ 规则分流（默认绕过中国大陆）/ 全部直连。规则分流下有常用场景开关（AI 服务、流媒体、游戏下载直连等）和按顺序匹配的自定义规则（网站分类、域名、IP、程序），每条规则可以指定走当前节点、直连、拦截或某个分组代理；规则可拖动排序，也可用文本模式编辑；「匹配测试」输入网址或 IP 即可看到命中哪条规则、最终走哪里
+- 🧭 **路由**：全局代理（默认，无需配置）/ 规则分流（默认绕过中国大陆）/ 全部直连。规则分流的「路由路径」把每个连接的判断顺序画成一条线：屏蔽广告、常用场景（AI 服务、流媒体、游戏下载直连、绕过中国大陆）和自己的规则（网站分类、域名、IP、程序）都是路径上的一步，可以任意拖动调整先后；每条规则可以指定走当前节点、直连、拦截或某个分组代理，也可用文本模式编辑；输入网址或 IP 测试，路径会一步步亮到命中的那一步。也可以切换回 v2.0 的「卡片」样式；两种样式都有「恢复默认」，路由路径还可以隐藏未开启的场景
 - 🧩 **分组代理**：按地区、名称关键词或手动挑选把节点分组，自动选最快或手动指定，再让不同网站走不同分组（例如 YouTube 走日本、Google 走美国）；按条件建的分组在订阅更新后自动包含新节点
 - 🚫 **屏蔽广告**：在所有路由模式下都生效
 - 📍 **落地信息**：连接后在启动页显示当前节点的国旗、落地 IP（默认打码）和状态灯，定期自动复查
 - 🖥️ **系统代理**：连接时自动设置，包括宽带拨号（PPPoE）和系统 VPN 连接；断开、退出、内核崩溃时自动还原；Windows 注销 / 关机时优先清除，即使程序被强制结束，下次登录时也会自动清除残留的代理
-- 🚀 **开机自启**：设置页实时显示是否真的加入了 Windows 启动项，被禁用、程序被移动等情况会给出原因和一键修复；开启 TUN 模式时改用计划任务以管理员身份启动；可选自启后自动连接上次的节点
-- 🛡️ **TUN 模式**：接管全部流量（需要管理员权限，可一键「以管理员身份重启」）；可选 FakeIP，带可编辑的排除列表
-- 💾 **备份与加密**：导出 / 导入配置（节点与订阅、分流规则、其他设置可分别选择），用密码以 AES-256 加密，格式与 Android 版相同；本地的节点和订阅也可以加密保存（跟随 Windows 账户，或使用启动密码）；内核配置不再写入磁盘
+- 🚀 **开机自启**：设置页实时显示是否真的加入了 Windows 启动项，被禁用、程序被移动等情况会给出原因和一键修复；开启 TUN 模式时改用计划任务以管理员身份启动；可选自启后自动连接上次的节点，连接失败时直接弹出主窗口；记录最近几次开机的结果，能发现被安全软件拦截的情况
+- 🛡️ **TUN 模式**：接管全部流量（需要管理员权限，可一键「以管理员身份重启」）；「TUN 排除网段」让 Tailscale、ZeroTier 等组网软件的网段不进 TUN，可从网卡一键添加；可选 FakeIP，带可编辑的排除列表
+- 💾 **备份与加密**：导出 / 导入配置（节点与订阅、分流规则、其他设置可分别选择），用密码以 AES-256 加密，格式与 Android 版相同，Android 专用的规则和设置会原样保留；本地的节点和订阅也可以加密保存（跟随 Windows 账户，或使用启动密码）；内核配置不再写入磁盘
 - 🌍 **DNS**：远程 DNS 走代理，直连 DNS 走本地；支持 UDP / TCP / DoT / DoQ / DoH / DoH3
 - 📌 **托盘**：关闭窗口后常驻托盘；右键菜单可启动 / 关闭代理、切换节点、路由模式和 TUN。绿点 = 系统代理，红点 = TUN
 - 📜 **连接与日志**：实时连接列表（目标、进程、规则、速度）；日志筛选；可选记录日志文件（单文件大小上限、保留天数）
@@ -70,7 +70,8 @@ NextBox 是 [sing-box](https://github.com/SagerNet/sing-box) 代理内核的桌�
 
 > 切换节点不断流、订阅自动更新、检查更新、拨号连接的系统代理从 v1.1.0 开始提供；
 > 链式代理、拖动排序、国旗与按国家搜索从 v1.2.0 开始提供；
-> 分组代理、新的分流规则、备份与加密、FakeIP、开机自启检测从 v2.0.0 开始提供。
+> 分组代理、新的分流规则、备份与加密、FakeIP、开机自启检测从 v2.0.0 开始提供；
+> NaiveProxy、路由路径（可调整顺序）、TUN 排除网段从 v2.1.0 开始提供。
 
 ## 🚀 快速上手
 
@@ -81,19 +82,19 @@ NextBox 是 [sing-box](https://github.com/SagerNet/sing-box) 代理内核的桌�
 
 ## 🧩 sing-box 内核
 
-发布包里的 `core/sing-box.exe` 由官方源码**未经修改**编译而成：
+发布包里的 `core/sing-box.exe` 由官方源码**未经修改**编译而成，旁边的 `libcronet.dll` 是 NaiveProxy 需要的网络库（来自 sing-box 源码锁定版本的 [cronet-go](https://github.com/SagerNet/cronet-go)，与官方发布包相同）：
 
 | | |
 |---|---|
 | 版本 | **sing-box 1.14.4** |
 | 分支 | **`stable` 稳定分支**（官方稳定版，标签 [`v1.14.4`](https://github.com/SagerNet/sing-box/tree/v1.14.4)） |
 | 编译环境 | Go 1.27.3，`windows/amd64`，CGO 关闭 |
-| 编译标签 | `with_gvisor, with_quic, with_dhcp, with_wireguard, with_utls, with_acme, with_clash_api, with_tailscale, with_ccm, with_ocm, with_cloudflared, with_usbip, with_openvpn, with_openconnect, badlinkname, tfogo_checklinkname0` |
+| 编译标签 | `with_gvisor, with_quic, with_dhcp, with_wireguard, with_utls, with_acme, with_clash_api, with_tailscale, with_ccm, with_ocm, with_cloudflared, with_naive_outbound, with_purego, with_usbip, with_openvpn, with_openconnect, badlinkname, tfogo_checklinkname0` |
 
-以上与官方 Windows 发布版的编译标签一致，只去掉了需要额外 cronet DLL 的 `with_naive_outbound` / `with_purego`。
+以上与官方 Windows 发布版的编译标签完全一致。
 内核版本和编译标签也可以在「设置 → 关于」里查看。
 
-NextBox 生成的是 sing-box **1.12 及以上**格式的配置，所以可以把 `core/` 里的 `sing-box.exe` 换成任何更新的官方版本。
+NextBox 生成的是 sing-box **1.12 及以上**格式的配置，所以可以把 `core/` 里的 `sing-box.exe` 换成任何更新的官方版本（使用 NaiveProxy 时连同 `libcronet.dll` 一起替换）。
 
 ## 💾 数据保存位置
 
@@ -106,6 +107,8 @@ NextBox 生成的是 sing-box **1.12 及以上**格式的配置，所以可以�
 | `config/rule-set/` | 下载的 geosite / geoip 规则集 |
 | `config/logs/` | 日志文件（仅在开启「记录日志到文件」时生成） |
 | `config/cache/` | 测速时的临时文件，测完自动清空 |
+| `config/autostart.json` | 最近几次开机自启的结果 |
+| `config/android.json` | 从 Android 备份导入的手机专用设置，再次导出时带上 |
 
 开启「加密保存节点和订阅」并选择「跟随 Windows 账户」后，`profiles.json` 只能在这台电脑的当前 Windows 账户下打开。
 迁移到另一台电脑前，请先在「设置 → 数据与备份」里导出备份。
@@ -157,7 +160,16 @@ Android 版导出的备份也可以在这里导入。来自其他系统的备份
 「启动密码」每次打开都要输入，开机自启时会停在解锁界面，忘记密码无法恢复。
 
 **开机自启没有生效？** 「设置 → 常规 → 开机自启」右边会显示检测结果。被任务管理器禁用、程序被移动、
-开启 TUN 模式但没有管理员权限等情况都会写明原因，点修复即可。
+开启 TUN 模式但没有管理员权限等情况都会写明原因，点修复即可。下面的「最近几次开机」会列出每次开机后的情况：
+「这次开机没有启动」通常是被 360、火绒等安全软件的启动项管理拦截了，需要在那里允许 NextBox。
+自启后自动连接失败时会直接弹出主窗口并写明原因。
+
+**开着 Tailscale / ZeroTier 时 TUN 模式连不上组网设备？** 在「设置 → TUN 模式 → TUN 排除网段」里加上它们的网段
+（Tailscale 是 `100.64.0.0/10`，也可以点「从网卡添加」），这些地址就不再经过 NextBox。
+
+**规则的先后顺序怎么调？** 「设置 → 分流规则」的路由路径里，拖动每一步左边的把手即可。
+第一步「局域网」和最后一步「其余流量」固定不动，其余（屏蔽广告、常用场景、自己的规则）都可以拖动。
+喜欢 v2.0 那种场景卡片加规则列表的样子，可以在「规则样式」里选「卡片」；规则改乱了，点底部的「恢复默认」即可从头开始。
 
 **FakeIP 是什么？** 只在 TUN 模式下生效：走代理的域名先拿到一个 198.18.x.x 的假地址，首次连接更快，DNS 也不会泄露。
 断开后个别程序可能还记着假地址而连不上，重启该程序即可；遇到兼容问题的域名可以加到排除列表里。
@@ -178,7 +190,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails build
 ```
 
-编译 sing-box 内核（默认读取 `../sing-box-stable` 的源码，输出到 `build/bin/core/sing-box.exe`）：
+编译 sing-box 内核（默认读取 `../sing-box-stable` 的源码，输出到 `build/bin/core/sing-box.exe`，并复制 NaiveProxy 需要的 `libcronet.dll`）：
 
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/build-core.ps1
@@ -200,6 +212,8 @@ main.go、app.go、support.go   Wails 入口与暴露给界面的接口
 background.go                 订阅自动更新、检查更新
 policy.go、backup.go          分组代理与匹配测试、备份导入导出与加密
 exit.go、startup.go           落地信息检测；开机自启检测、关机清理
+autostart_log.go              每次开机自启的结果记录
+tunexclude.go                 TUN 排除网段的检查与网卡列表
 tray.go                       系统托盘
 cmd/genicon/                  生成应用图标
 internal/

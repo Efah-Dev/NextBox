@@ -98,3 +98,28 @@ func TestNameKeepsSpaces(t *testing.T) {
 		}
 	}
 }
+
+func TestNaive(t *testing.T) {
+	n, err := Parse("naive+quic://user:p%40ss@naive.example.com:8443?extra-headers=X-A%3A%201%0D%0AX-B%3A%202#TW%2003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ob := n.Outbound
+	if n.Name != "TW 03" || ob["type"] != "naive" || ob["server_port"] != 8443 || ob["password"] != "p@ss" || ob["quic"] != true {
+		t.Fatalf("parsed: %s %v", n.Name, ob)
+	}
+	if h, _ := ob["extra_headers"].(map[string]any); h["X-B"] != "2" {
+		t.Fatalf("headers: %v", ob["extra_headers"])
+	}
+	out, err := Export(n.Name, ob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := Parse(out)
+	if err != nil || back.Outbound["quic"] != true || back.Outbound["username"] != "user" || back.Name != "TW 03" {
+		t.Fatalf("round trip %s: %v %v", out, back, err)
+	}
+	if n, _ := Parse("naive+https://u:p@h.example.com#x"); n.Outbound["server_port"] != 443 || n.Outbound["quic"] != nil {
+		t.Fatalf("https default: %v", n.Outbound)
+	}
+}

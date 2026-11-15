@@ -41,7 +41,7 @@ watchEffect(() => {
   const dark = s?.theme === 'dark' || (s?.theme !== 'light' && systemDark.value)
   root.classList.toggle('dark', dark)
   if (s?.accentColor) root.style.setProperty('--accent', s.accentColor)
-  applyLevel(root, dark, dark ? s?.darkLevel ?? 60 : s?.lightLevel ?? 0)
+  applyLevel(root, dark, dark ? s?.darkLevel ?? 60 : s?.lightLevel ?? 20)
 })
 
 onMounted(async () => {

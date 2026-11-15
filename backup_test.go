@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"nextbox/internal/store"
@@ -47,6 +48,60 @@ func TestReadBackup(t *testing.T) {
 	}
 }
 
+// ownRules leaves out the places of ad blocking and the scenes.
+func ownRules(rules []store.Rule) []store.Rule {
+	var out []store.Rule
+	for _, r := range rules {
+		if !r.IsStep() {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// A backup made by NextBox for Android (v1.1): Android-only rules and
+// preferences come through, the home page mode stays.
+func TestAndroidBackup(t *testing.T) {
+	doc := []byte(`{"app":"NextBox","version":2,"platform":"android",
+"profiles":{"nextId":3,"groups":[{"id":1,"name":"g"}],"profiles":[{"id":2,"groupId":1,"name":"n","type":"naive","outbound":{"type":"naive","server":"h.example.com","server_port":443,"username":"u","password":"p","tls":{"enabled":true}}}]},
+"settings":{"routeMode":"rule","blockAds":true,"lightLevel":0,"mixedPort":7890,
+"rules":[{"kind":"package","values":["com.example.app"],"target":"direct"},{"kind":"suffix","values":["example.org"],"target":"proxy"}],
+"scenes":[{"id":"cn","enabled":false,"target":"direct"}]},
+"android":{"perAppMode":"exclude","perAppList":["com.example.bank"]}}`)
+	sealed, _ := vault.Encrypt(doc, "secret1")
+	p := writeFile(t, "android.json", sealed)
+	a := &App{}
+	info, err := a.InspectBackup(p, "secret1")
+	if err != nil || info.Platform != "android" || info.Rules != 2 || info.AndroidRules != 1 || !info.HasNodes {
+		t.Fatalf("inspect: %+v %v", info, err)
+	}
+	d, _, err := readBackup(p, "secret1")
+	if err != nil || string(d.Android) == "" {
+		t.Fatalf("android preferences lost: %v", err)
+	}
+
+	cur := store.DefaultSettings()
+	cur.RouteMode = "global"
+	keys := append(append([]string{}, ruleSettings...), portableSettings...)
+	keys = slices.DeleteFunc(keys, func(k string) bool { return k == "routeMode" })
+	next, err := mergeSettings(cur, d.Settings, keys, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next.Normalize()
+	if next.RouteMode != "global" || next.MixedPort != cur.MixedPort {
+		t.Errorf("mode %s port %d", next.RouteMode, next.MixedPort)
+	}
+	own := ownRules(next.Rules)
+	if len(own) != 2 || own[0].Kind != "package" {
+		t.Errorf("rules: %+v", next.Rules)
+	}
+	// a level of the old scale is converted
+	if next.LightLevel != store.DefaultLightLevel {
+		t.Errorf("light level %d", next.LightLevel)
+	}
+}
+
 func TestMergeSettings(t *testing.T) {
 	cur := store.DefaultSettings()
 	cur.MixedPort, cur.Theme = 2030, "light"
@@ -61,7 +116,7 @@ func TestMergeSettings(t *testing.T) {
 	if next.MixedPort != 2030 || next.TunEnabled || next.Theme != "dark" || next.RouteMode != "rule" {
 		t.Errorf("cross-platform merge: port %d tun %v theme %s mode %s", next.MixedPort, next.TunEnabled, next.Theme, next.RouteMode)
 	}
-	if len(next.Rules) != 1 || next.Rules[0].Values[0] != "google.com" {
+	if r := ownRules(next.Rules); len(r) != 1 || r[0].Values[0] != "google.com" {
 		t.Errorf("old rule text not converted: %+v", next.Rules)
 	}
 

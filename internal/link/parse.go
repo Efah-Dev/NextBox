@@ -59,6 +59,8 @@ func Parse(raw string) (*Node, error) {
 		n, err = parseSocks(raw)
 	case "http", "https":
 		n, err = parseHTTP(raw)
+	case "naive+https", "naive+quic", "naive":
+		n, err = parseNaive(raw)
 	default:
 		return nil, fmt.Errorf("%w: %s", unsupported(), scheme)
 	}
@@ -710,6 +712,54 @@ func parseHTTP(raw string) (*Node, error) {
 	}
 	if u.Scheme == "https" {
 		ob["tls"] = buildTLS(u.Query(), host)
+	}
+	return &Node{Name: name, Outbound: ob}, nil
+}
+
+// ---- NaiveProxy ----
+
+// parseNaive reads naive+https://user:pass@host:port?extra-headers=…#name
+// (HTTP/2 over TLS) and naive+quic://… (HTTP/3), the format of the
+// NaiveProxy URI scheme. extra-headers holds "Name: value" lines.
+func parseNaive(raw string) (*Node, error) {
+	u, name, err := parseURL(raw)
+	if err != nil {
+		return nil, err
+	}
+	host := u.Hostname()
+	if host == "" {
+		return nil, errors.New(i18n.T("缺少服务器地址"))
+	}
+	port := 443
+	if u.Port() != "" {
+		if port, err = parsePort(u.Port()); err != nil {
+			return nil, err
+		}
+	}
+	q := u.Query()
+	ob := map[string]any{
+		"type":        "naive",
+		"server":      host,
+		"server_port": port,
+		"tls":         buildTLS(q, host),
+	}
+	if u.User != nil && u.User.Username() != "" {
+		ob["username"] = u.User.Username()
+		ob["password"], _ = u.User.Password()
+	}
+	if strings.EqualFold(u.Scheme, "naive+quic") {
+		ob["quic"] = true
+	}
+	if h := q.Get("extra-headers"); h != "" {
+		headers := map[string]any{}
+		for _, line := range strings.FieldsFunc(h, func(r rune) bool { return r == '\r' || r == '\n' }) {
+			if k, v, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(k) != "" {
+				headers[strings.TrimSpace(k)] = strings.TrimSpace(v)
+			}
+		}
+		if len(headers) > 0 {
+			ob["extra_headers"] = headers
+		}
 	}
 	return &Node{Name: name, Outbound: ob}, nil
 }

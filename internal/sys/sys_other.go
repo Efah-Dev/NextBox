@@ -28,6 +28,7 @@ type AutoStartInfo struct {
 	Method   string `json:"method"`
 	Path     string `json:"path"`
 	Disabled bool   `json:"disabled"`
+	TaskUser string `json:"taskUser,omitempty"`
 }
 
 func SetAutoStart(method string) error {
@@ -37,6 +38,9 @@ func SetAutoStart(method string) error {
 	return nil
 }
 func GetAutoStart() AutoStartInfo       { return AutoStartInfo{} }
+func SameUser(account string) bool      { return true }
+func BootTime() time.Time               { return time.Time{} }
+func UnsteadyPath(path string) string   { return "" }
 func SameExe(path string) bool          { return false }
 func RepairAutoStart() error            { return errUnsupported() }
 func SetProxyCleanup(addr string) error { return nil }

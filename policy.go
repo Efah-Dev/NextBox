@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -230,9 +231,11 @@ func (a *App) SelectPolicyNode(id, node int64) error {
 
 // RouteMatch tells where a domain or IP address would go.
 type RouteMatch struct {
-	Input  string `json:"input"`
-	Source string `json:"source"` // "ads", "rule", "scene", "private" or "final"
-	Index  int    `json:"index"`  // the rule, for source "rule"
+	Input string `json:"input"`
+	// Source is "excluded" (a TUN exclusion), "private", "ads", "rule",
+	// "scene" or "final".
+	Source string `json:"source"`
+	Index  int    `json:"index"` // the step in Settings.Rules (ads, rule, scene); -1 when it has none
 	Scene  string `json:"scene"`
 	Target string `json:"target"` // store.Target* / policy target; "final" uses the mode
 	// Note explains a limit of the test, e.g. that IP rules cannot be checked
@@ -258,12 +261,23 @@ func (a *App) TestRoute(input string) (RouteMatch, error) {
 	if host == "" || !hostOnly.MatchString(host) {
 		return RouteMatch{}, errors.New(i18n.T("请输入网址、域名或 IP 地址"))
 	}
-	res := RouteMatch{Input: host}
+	res := RouteMatch{Input: host, Index: -1}
 	s := a.store.Settings()
 	ip := net.ParseIP(host)
 	if ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
 		res.Source, res.Target = "private", store.TargetDirect
 		return res, nil
+	}
+	if ip != nil {
+		excl, _ := config.ParseCIDRs(s.TunExclude)
+		for _, c := range excl {
+			if p, err := netip.ParsePrefix(c); err == nil {
+				if addr, ok := netip.AddrFromSlice(ip); ok && p.Contains(addr.Unmap()) {
+					res.Source, res.Target = "excluded", store.TargetDirect
+					return res, nil
+				}
+			}
+		}
 	}
 	skippedIP := false
 	for _, e := range config.Entries(s) {
@@ -274,7 +288,7 @@ func (a *App) TestRoute(input string) (RouteMatch, error) {
 			return res, nil
 		}
 	}
-	res.Source, res.Target = "final", "final"
+	res.Source, res.Target, res.Index = "final", "final", -1
 	if skippedIP {
 		res.Note = i18n.T("按 IP 判断的规则（IP 段、IP 归属地）只对 IP 地址生效，测试域名时已跳过")
 	}

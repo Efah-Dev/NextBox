@@ -13,6 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,7 +33,15 @@ type backupDoc struct {
 	Platform string          `json:"platform,omitempty"`
 	Profiles json.RawMessage `json:"profiles,omitempty"`
 	Settings json.RawMessage `json:"settings,omitempty"`
+	// Android holds preferences of NextBox for Android (the apps that use
+	// the VPN and the like). They mean nothing here but are kept, so that a
+	// backup that went through this computer still has them.
+	Android json.RawMessage `json:"android,omitempty"`
 }
+
+// androidPrefsPath is where the Android preferences of an imported backup
+// are kept until the next export.
+func (a *App) androidPrefsPath() string { return filepath.Join(a.dataDir(), "android.json") }
 
 // Settings that mean the same on every platform: everything else (ports,
 // TUN, system proxy, autostart, window behaviour, logs) stays local when a
@@ -91,6 +101,11 @@ func (a *App) ExportBackup(o BackupOptions) (string, error) {
 		}
 		doc.Settings = raw
 	}
+	if o.Settings {
+		if b, err := os.ReadFile(a.androidPrefsPath()); err == nil && json.Valid(b) {
+			doc.Android = b
+		}
+	}
 	plain, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return "", err
@@ -122,8 +137,12 @@ func (a *App) ExportBackup(o BackupOptions) (string, error) {
 // ChooseBackup asks for a backup file; "" when cancelled.
 func (a *App) ChooseBackup() (string, error) {
 	return wruntime.OpenFileDialog(a.ctx, wruntime.OpenDialogOptions{
-		Title:   i18n.T("导入配置"),
-		Filters: []wruntime.FileFilter{{DisplayName: "JSON (*.json)", Pattern: "*.json"}},
+		Title: i18n.T("导入配置"),
+		// a backup sent through a chat app often loses its extension
+		Filters: []wruntime.FileFilter{
+			{DisplayName: "JSON (*.json)", Pattern: "*.json"},
+			{DisplayName: i18n.T("所有文件 (*.*)"), Pattern: "*.*"},
+		},
 	})
 }
 
@@ -138,6 +157,9 @@ type BackupInfo struct {
 	HasSettings  bool              `json:"hasSettings"`
 	Summary      store.DataSummary `json:"summary"`
 	Rules        int               `json:"rules"`
+	// AndroidRules counts the rules by app, which only NextBox for Android
+	// can use; they are kept anyway.
+	AndroidRules int `json:"androidRules"`
 }
 
 // readBackup opens a backup (or a plain profiles.json).
@@ -220,7 +242,16 @@ func (a *App) InspectBackup(path, password string) (BackupInfo, error) {
 		s.Rules = nil
 		if json.Unmarshal(doc.Settings, &s) == nil {
 			s.Normalize()
-			info.Rules = len(s.Rules)
+			for _, r := range s.Rules {
+				switch {
+				case r.IsStep():
+				case r.Kind == "package":
+					info.AndroidRules++
+					info.Rules++
+				default:
+					info.Rules++
+				}
+			}
 		}
 	}
 	return info, nil
@@ -256,6 +287,15 @@ func (a *App) ImportBackup(path string, o BackupOptions) (string, error) {
 			} else {
 				keys = append(keys, portableSettings...)
 			}
+		}
+		if keys != nil && doc.Platform != backupPlatform {
+			// the routing mode is the home page's choice; NextBox for Android
+			// always says "rule" (its global mode is rule mode without the
+			// mainland China bypass)
+			keys = slices.DeleteFunc(keys, func(k string) bool { return k == "routeMode" })
+		}
+		if o.Settings && len(doc.Android) > 0 && json.Valid(doc.Android) {
+			os.WriteFile(a.androidPrefsPath(), doc.Android, 0o600)
 		}
 		next, err := mergeSettings(a.store.Settings(), doc.Settings, keys, o.Rules)
 		if err != nil {
@@ -302,6 +342,13 @@ func mergeSettings(cur store.Settings, imported json.RawMessage, keys []string, 
 			continue
 		}
 		out[k] = v
+	}
+	// levels of a backup made before the v2.1 scales are converted (see
+	// store.Settings.ThemeScale)
+	_, light := in["lightLevel"]
+	_, dark := in["darkLevel"]
+	if _, scale := in["themeScale"]; (light || dark) && !scale && (keys == nil || contains(keys, "lightLevel")) {
+		out["themeScale"] = json.RawMessage("0")
 	}
 	if withRules {
 		// rules from the backup replace the current ones
@@ -401,12 +448,14 @@ func (a *App) Unlock(password string) error {
 	a.emitState()
 	a.emitProfiles(a.store.CurrentGroupID())
 	s := a.store.Settings()
-	if (s.ConnectOnStart || (a.autoStarted && s.AutoStartConnect)) && a.store.SelectedID() != 0 {
-		go func() {
-			if err := a.Connect(); err != nil {
-				a.log(i18n.T("自动连接失败: ") + err.Error())
-			}
-		}()
+	switch {
+	case a.autoStarted && s.AutoStartConnect && a.store.SelectedID() == 0:
+		a.recordAutoStart("noNode", "")
+	case a.autoStarted && s.AutoStartConnect:
+		a.recordAutoStart("started", "")
+		go a.autoConnect()
+	case s.ConnectOnStart && a.store.SelectedID() != 0:
+		go a.autoConnect()
 	}
 	return nil
 }

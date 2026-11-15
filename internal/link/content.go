@@ -17,6 +17,7 @@ var supportedOutbounds = map[string]bool{
 	"shadowsocks": true, "vmess": true, "vless": true, "trojan": true,
 	"hysteria": true, "hysteria2": true, "tuic": true, "anytls": true,
 	"socks": true, "http": true, "wireguard": true, "ssh": true, "shadowtls": true,
+	"naive": true,
 }
 
 // ParseContent parses a subscription body or pasted text. It understands
@@ -297,6 +298,22 @@ func clashProxy(raw map[string]any) (*Node, error) {
 				opts += ";path=" + path
 			}
 			ob["plugin_opts"] = opts
+		case "shadow-tls":
+			// ShadowTLS in front of Shadowsocks (Clash.Meta); config.Expand turns
+			// this into a shadowtls outbound the shadowsocks one dials through.
+			o := p.m("plugin-opts")
+			version := o.i("version")
+			if version == 0 {
+				version = 2
+			}
+			st := map[string]any{"version": version, "server_name": firstNonEmpty(o.s("host"), server)}
+			if pw := o.s("password"); pw != "" {
+				st["password"] = pw
+			}
+			if fp := p.s("client-fingerprint"); fp != "" {
+				st["fingerprint"] = fp
+			}
+			ob["shadowtls"] = st
 		case "":
 		default:
 			return nil, fmt.Errorf(i18n.T("不支持的 ss 插件 %s"), p.s("plugin"))

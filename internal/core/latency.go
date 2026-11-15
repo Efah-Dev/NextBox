@@ -39,6 +39,9 @@ func URLOnly(p store.Profile) bool {
 	switch p.Type {
 	case "hysteria", "hysteria2", "tuic", "wireguard", store.TypeChain:
 		return true
+	case "naive": // HTTP/3 (QUIC) runs over UDP
+		quic, _ := p.Outbound["quic"].(bool)
+		return quic
 	}
 	return false
 }

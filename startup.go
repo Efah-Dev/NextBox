@@ -52,10 +52,15 @@ type AutoStartStatus struct {
 	Method  string `json:"method"`  // sys.AutoStartRun or sys.AutoStartTask
 	// Problem is "missing" (no entry), "moved" (the entry starts another
 	// copy of NextBox), "disabled" (switched off in Windows), "tun" (TUN mode
-	// needs administrator rights, which the Run entry cannot give) or
+	// needs administrator rights, which the Run entry cannot give), "user"
+	// (the scheduled task starts for another account, Detail) or
 	// "error" (Detail says why).
 	Problem string `json:"problem"`
 	Detail  string `json:"detail,omitempty"`
+	// Location is "temp" or "removable" when the program sits where Windows
+	// may not find it at the next start (see sys.UnsteadyPath).
+	Location string            `json:"location,omitempty"`
+	Records  []AutoStartRecord `json:"records"` // newest first
 }
 
 // wantedAutoStart is the method that suits the settings: a scheduled task
@@ -84,15 +89,23 @@ func (a *App) applyAutoStart(s store.Settings) error {
 	err := sys.SetAutoStart(method)
 	if err != nil {
 		a.log(i18n.T("设置开机自启失败: ") + err.Error())
+	} else if method != "" {
+		a.autoStartEnabled()
 	}
 	return err
 }
 
 func (a *App) GetAutoStartStatus() AutoStartStatus {
 	s := a.store.Settings()
-	st := AutoStartStatus{Enabled: s.AutoStart}
+	st := AutoStartStatus{Enabled: s.AutoStart, Records: []AutoStartRecord{}}
+	if exe, err := os.Executable(); err == nil {
+		st.Location = sys.UnsteadyPath(exe)
+	}
 	if !s.AutoStart {
 		return st
+	}
+	if l := a.readAutoStartLog(); l.Records != nil {
+		st.Records = l.Records
 	}
 	info := sys.GetAutoStart()
 	st.Method = info.Method
@@ -103,6 +116,8 @@ func (a *App) GetAutoStartStatus() AutoStartStatus {
 		st.Problem, st.Detail = "moved", info.Path
 	case info.Disabled:
 		st.Problem = "disabled"
+	case info.Method == sys.AutoStartTask && !sys.SameUser(info.TaskUser):
+		st.Problem, st.Detail = "user", info.TaskUser
 	case s.TunEnabled && info.Method == sys.AutoStartRun:
 		st.Problem = "tun"
 	default:

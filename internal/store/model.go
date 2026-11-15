@@ -92,8 +92,11 @@ type Settings struct {
 	Language    string `json:"language"`
 	// How far the light theme is dimmed and how deep the dark theme goes,
 	// 0-100 (see DefaultSettings for the defaults).
-	LightLevel   int      `json:"lightLevel"`
-	DarkLevel    int      `json:"darkLevel"`
+	LightLevel int `json:"lightLevel"`
+	DarkLevel  int `json:"darkLevel"`
+	// ThemeScale is the version of the level scales: 2 since v2.1, whose
+	// scales reach further both ways (older levels are converted once).
+	ThemeScale   int      `json:"themeScale"`
 	RecentColors []string `json:"recentColors,omitempty"` // custom accent colours, newest first
 
 	ListenAddress string `json:"listenAddress"`
@@ -110,11 +113,16 @@ type Settings struct {
 	// one per line, that always get real addresses.
 	TunFakeIP     bool   `json:"tunFakeIp"`
 	FakeIPExclude string `json:"fakeIpExclude"`
+	// TunExclude lists IP ranges (one per line) that stay out of the TUN
+	// interface and keep the routes Windows has for them, e.g. Tailscale's
+	// 100.64.0.0/10.
+	TunExclude string `json:"tunExclude"`
 
 	RouteMode string `json:"routeMode"` // global | rule | direct
 	BlockAds  bool   `json:"blockAds"`  // in every mode
-	// Rules and Scenes only apply in rule mode. Rules are checked in order,
-	// before the scenes.
+	// Rules and Scenes only apply in rule mode. Rules are checked in order;
+	// ad blocking and each scene have a place among them (KindAds,
+	// KindScene), so that the user decides what is checked first.
 	Rules  []Rule  `json:"rules"`
 	Scenes []Scene `json:"scenes"`
 	// The rule lists of v1.2 and of NextBox for Android (one rule per line);
@@ -123,6 +131,11 @@ type Settings struct {
 	ProxyRules    string `json:"proxyRules,omitempty"`
 	BlockRules    string `json:"blockRules,omitempty"`
 	RuleSetMirror string `json:"ruleSetMirror"`
+	// How the routing rules page looks: "path" (the route, steps in order;
+	// the default) or "cards" (the scene cards and a rule list of v2.0).
+	// RouteHideOff hides the scenes that are switched off. Display only.
+	RouteView    string `json:"routeView,omitempty"`
+	RouteHideOff bool   `json:"routeHideOff,omitempty"`
 
 	RemoteDNS  string `json:"remoteDns"`
 	DirectDNS  string `json:"directDns"`
@@ -180,6 +193,8 @@ func DefaultSettings() Settings {
 		Scenes:           DefaultScenes(),
 		Rules:            []Rule{},
 		DarkLevel:        DefaultDarkLevel,
+		LightLevel:       DefaultLightLevel,
+		ThemeScale:       ThemeScale,
 		AutoStartConnect: true,
 		RuleSetMirror:    LocalRuleSetMirror,
 		RemoteDNS:        "https://1.1.1.1/dns-query",
@@ -188,7 +203,7 @@ func DefaultSettings() Settings {
 		TestURL:          "https://www.google.com/generate_204",
 		TestTimeout:      5000,
 		TestConcurrency:  16,
-		SubUserAgent:     "NextBox/2.0.0 (sing-box; ClashMeta compatible)",
+		SubUserAgent:     "NextBox/2.1.0 (sing-box; ClashMeta compatible)",
 		SubUpdateHours:   12,
 		CountrySource:    CountryExit,
 		LogLevel:         "info",
@@ -227,9 +242,10 @@ func (s *Settings) fillDefaults() {
 	}
 	s.LightLevel = clamp(s.LightLevel, 0, 100)
 	s.DarkLevel = clamp(s.DarkLevel, 0, 100)
+	s.migrateLevels()
 	s.migrateRules()
-	s.Rules = cleanRules(s.Rules)
 	s.Scenes = mergeScenes(s.Scenes)
+	s.Rules = placeSteps(cleanRules(s.Rules), s.Scenes)
 	if s.RuleSetMirror == "" {
 		s.RuleSetMirror = d.RuleSetMirror
 	}

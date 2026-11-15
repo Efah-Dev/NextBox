@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 	"unicode/utf16"
 	"unsafe"
 
@@ -46,6 +47,9 @@ type AutoStartInfo struct {
 	Method   string `json:"method"`   // AutoStartRun, AutoStartTask or "" (not registered)
 	Path     string `json:"path"`     // the program the entry starts
 	Disabled bool   `json:"disabled"` // switched off in Task Manager / Settings → Startup apps
+	// TaskUser is the account the scheduled task starts for (it runs when
+	// that account logs on).
+	TaskUser string `json:"taskUser,omitempty"`
 }
 
 func exePath() (string, error) {
@@ -115,9 +119,8 @@ func enableStartupEntry() error {
 
 // GetAutoStart reports the current registration.
 func GetAutoStart() AutoStartInfo {
-	if cmd, args, enabled, ok := queryTask(); ok {
-		_ = args
-		return AutoStartInfo{Method: AutoStartTask, Path: cmd, Disabled: !enabled}
+	if cmd, user, enabled, ok := queryTask(); ok {
+		return AutoStartInfo{Method: AutoStartTask, Path: cmd, Disabled: !enabled, TaskUser: user}
 	}
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE)
 	if err != nil {
@@ -186,7 +189,8 @@ type taskXML struct {
 	} `xml:"Settings"`
 	Triggers struct {
 		Logon []struct {
-			Enabled *bool `xml:"Enabled"`
+			Enabled *bool  `xml:"Enabled"`
+			UserID  string `xml:"UserId"`
 		} `xml:"LogonTrigger"`
 	} `xml:"Triggers"`
 	Actions struct {
@@ -197,7 +201,7 @@ type taskXML struct {
 	} `xml:"Actions"`
 }
 
-func queryTask() (command, args string, enabled, ok bool) {
+func queryTask() (command, user string, enabled, ok bool) {
 	out, err := schtasks("/Query", "/TN", autoStartName, "/XML")
 	if err != nil {
 		return "", "", false, false
@@ -217,8 +221,11 @@ func queryTask() (command, args string, enabled, ok bool) {
 		if l.Enabled != nil && !*l.Enabled {
 			enabled = false
 		}
+		if l.UserID != "" {
+			user = l.UserID
+		}
 	}
-	return strings.Trim(t.Actions.Exec[0].Command, `"`), t.Actions.Exec[0].Arguments, enabled, true
+	return strings.Trim(t.Actions.Exec[0].Command, `"`), user, enabled, true
 }
 
 func createTask(exe string) error {
@@ -274,6 +281,49 @@ func createTask(exe string) error {
 		return errors.New(strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// SameUser reports whether account (as a task stores it, "PC\name" or
+// "name") is the user running this program.
+func SameUser(account string) bool {
+	u, err := user.Current()
+	if err != nil || account == "" {
+		return true
+	}
+	strip := func(s string) string {
+		if i := strings.LastIndex(s, `\`); i >= 0 {
+			return s[i+1:]
+		}
+		return s
+	}
+	return strings.EqualFold(account, u.Username) || strings.EqualFold(strip(account), strip(u.Username))
+}
+
+var procGetTickCount64 = kernel32.NewProc("GetTickCount64")
+
+// BootTime is when Windows was started.
+func BootTime() time.Time {
+	ms, _, _ := procGetTickCount64.Call()
+	return time.Now().Add(-time.Duration(ms) * time.Millisecond)
+}
+
+// UnsteadyPath tells whether a program at path may be gone or not yet
+// reachable when Windows starts: "temp" (a temporary folder, e.g. opened
+// straight from a zip file) or "removable" (a USB drive, a card); "" when it
+// is fine.
+func UnsteadyPath(path string) string {
+	lower := strings.ToLower(filepath.Clean(path))
+	tmp := strings.ToLower(filepath.Clean(os.TempDir()))
+	if strings.HasPrefix(lower, tmp+`\`) || strings.Contains(lower, `\appdata\local\temp\`) {
+		return "temp"
+	}
+	if vol := filepath.VolumeName(path); len(vol) == 2 && vol[1] == ':' {
+		root, _ := windows.UTF16PtrFromString(vol + `\`)
+		if windows.GetDriveType(root) == windows.DRIVE_REMOVABLE {
+			return "removable"
+		}
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------- proxy cleanup

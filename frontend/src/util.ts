@@ -51,6 +51,7 @@ const typeNames: Record<string, string> = {
   wireguard: 'WireGuard',
   ssh: 'SSH',
   shadowtls: 'ShadowTLS',
+  naive: 'NaiveProxy',
 }
 
 export const typeName = (t: string) => typeNames[t] ?? t

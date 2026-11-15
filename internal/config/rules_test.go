@@ -114,10 +114,12 @@ func TestMigrateRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := st.Settings()
-	if got.ProxyRules != "" || len(got.Rules) != 5 {
+	if got.ProxyRules != "" || len(got.Rules) != 10 {
 		t.Fatalf("rules = %+v", got.Rules)
 	}
-	want := []string{"keyword:ads>block", "suffix:google.com,youtube.com>proxy", "geosite:netflix>proxy", "cidr:1.2.3.4/32>direct", "process:WeChat.exe>direct"}
+	// ad blocking first and the scenes last, as v2.0 checked them
+	want := []string{"ads:>", "keyword:ads>block", "suffix:google.com,youtube.com>proxy", "geosite:netflix>proxy", "cidr:1.2.3.4/32>direct", "process:WeChat.exe>direct",
+		"scene:ai>", "scene:media>", "scene:games>", "scene:cn>"}
 	for i, r := range got.Rules {
 		if g := r.Kind + ":" + strings.Join(r.Values, ",") + ">" + r.Target; g != want[i] {
 			t.Errorf("rule %d = %s, want %s", i, g, want[i])

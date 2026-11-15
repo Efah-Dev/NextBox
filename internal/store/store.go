@@ -45,7 +45,10 @@ func Open(dir string) (*Store, error) {
 	if err := s.loadProfiles(); err != nil {
 		return nil, err
 	}
-	if err := readJSON(filepath.Join(dir, "settings.json"), &s.settings); err != nil && !errors.Is(err, os.ErrNotExist) {
+	s.settings.ThemeScale = 0 // a settings file without it predates the v2.1 level scales
+	if err := readJSON(filepath.Join(dir, "settings.json"), &s.settings); errors.Is(err, os.ErrNotExist) {
+		s.settings.ThemeScale = ThemeScale
+	} else if err != nil {
 		return nil, err
 	}
 	s.settings.fillDefaults()

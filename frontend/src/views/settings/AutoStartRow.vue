@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // 开机自启 with a check of what Windows will really do: an animated green
 // tick when NextBox is registered and enabled, a red cross with the reason
-// and a fix otherwise.
+// and a fix otherwise; below, what happened the last times Windows started
+// it (or did not).
 import { t } from '../../i18n'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Switch from '../../components/Switch.vue'
-import { api, type AutoStartStatus } from '../../api'
+import { api, type AutoStartRecord, type AutoStartStatus } from '../../api'
 import { state } from '../../state'
 import { run } from '../../util'
 
@@ -48,9 +49,55 @@ const problem = computed(() => {
           : t('TUN 模式需要管理员权限，普通启动项拿不到。请先“以管理员身份重启”，再点修复。'),
         fix: t('改用计划任务'),
       }
+    case 'user':
+      return {
+        title: t('计划任务属于另一个账户'),
+        text: t('它只在 {0} 登录时运行，用现在这个账户登录时不会启动 NextBox。', status.value?.detail ?? ''),
+        fix: t('改为当前账户'),
+      }
   }
   return null
 })
+
+const location = computed(() => {
+  switch (status.value?.location) {
+    case 'temp':
+      return t('NextBox 在临时文件夹里运行（可能是直接从压缩包里打开的），重启后这个文件夹可能就没了。请先解压到一个固定的文件夹，再从那里打开 NextBox。')
+    case 'removable':
+      return t('NextBox 放在 U 盘或移动硬盘上，开机时没插上就无法启动。建议放到电脑自己的硬盘里。')
+  }
+  return ''
+})
+
+// ---- the last starts by Windows
+const records = computed(() => (status.value?.records ?? []).slice(0, 3))
+function when(at: number) {
+  const d = new Date(at * 1000)
+  const hm = d.toTimeString().slice(0, 5)
+  const day = new Date()
+  day.setHours(0, 0, 0, 0)
+  const diff = Math.floor((day.getTime() - new Date(d).setHours(0, 0, 0, 0)) / 86400000)
+  if (diff === 0) return t('今天 {0}', hm)
+  if (diff === 1) return t('昨天 {0}', hm)
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${hm}`
+}
+function describe(r: AutoStartRecord): { cls: string; text: string; note?: string } {
+  switch (r.result) {
+    case 'connected':
+      return { cls: 'good', text: t('已自动连接') }
+    case 'failed':
+      return { cls: 'bad', text: t('自动连接失败'), note: r.detail }
+    case 'locked':
+      return { cls: 'mid', text: t('等待输入启动密码'), note: t('输入密码后才会连接') }
+    case 'noNode':
+      return { cls: 'mid', text: t('没有自动连接'), note: t('还没有选择节点') }
+    case 'started':
+      return { cls: 'good', text: t('已启动'), note: r.detail }
+    case 'missed':
+      return { cls: 'bad', text: t('这次开机没有启动'), note: t('可能被安全软件拦截了：在 360、火绒、电脑管家等软件的“启动项管理”里允许 NextBox') }
+  }
+  return { cls: '', text: r.result }
+}
 
 async function fix() {
   fixing.value = true
@@ -85,7 +132,21 @@ async function fix() {
       <span>{{ problem.text }}</span>
     </div>
     <button class="btn small" :disabled="fixing" @click="fix">{{ fixing ? t('正在修复…') : problem.fix }}</button>
-    <button v-if="status?.problem === 'tun' && !state.app?.elevated" class="btn small" @click="run(() => api.restartAsAdmin())">{{ t('以管理员身份重启') }}</button>
+    <button v-if="(status?.problem === 'tun' || status?.problem === 'user') && !state.app?.elevated" class="btn small" @click="run(() => api.restartAsAdmin())">{{ t('以管理员身份重启') }}</button>
+  </div>
+  <div v-if="enabled && location" class="fail warn-box">
+    <div>
+      <b>{{ t('程序放的位置开机时可能找不到') }}</b>
+      <span>{{ location }}</span>
+    </div>
+  </div>
+  <div v-if="enabled && records.length" class="records">
+    <div class="records-title">{{ t('最近几次开机') }}</div>
+    <div v-for="r in records" :key="r.at + r.result" class="record">
+      <span class="at mono">{{ when(r.at) }}</span>
+      <span :class="describe(r).cls">{{ describe(r).text }}</span>
+      <span v-if="describe(r).note" class="note" :title="describe(r).note">{{ describe(r).note }}</span>
+    </div>
   </div>
 </template>
 
@@ -165,6 +226,61 @@ async function fix() {
   color: var(--text-2);
   line-height: 1.6;
   word-break: break-all;
+}
+.warn-box {
+  background: color-mix(in srgb, var(--mid) 10%, var(--card));
+}
+.warn-box b {
+  color: var(--mid);
+}
+.records {
+  margin: 0 0 10px 236px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  overflow: hidden;
+}
+.records-title {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+  background: var(--hover);
+}
+.record {
+  display: grid;
+  grid-template-columns: 86px auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+}
+.record .at {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.record .good {
+  color: var(--good);
+  font-weight: 700;
+}
+.record .bad {
+  color: var(--bad);
+  font-weight: 700;
+}
+.record .mid {
+  color: var(--mid);
+  font-weight: 700;
+}
+.record .note {
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 900px) {
+  .records {
+    margin-left: 0;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .ring,

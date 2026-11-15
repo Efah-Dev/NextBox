@@ -100,7 +100,12 @@ func (p *Process) waitReady(ctx context.Context) error {
 		case <-p.done:
 			// give the log reader a moment to collect the final lines
 			time.Sleep(100 * time.Millisecond)
-			return fmt.Errorf(i18n.T("内核启动失败:\n%s"), p.Tail())
+			tail := p.Tail()
+			if strings.Contains(tail, "naive outbound is not included") || strings.Contains(strings.ToLower(tail), "libcronet") {
+				// a core without NaiveProxy, or its libcronet.dll is missing
+				return errors.New(i18n.T("当前内核不支持 NaiveProxy：请换回 NextBox 自带的内核，并确认 core 文件夹里有 libcronet.dll") + "\n" + tail)
+			}
+			return fmt.Errorf(i18n.T("内核启动失败:\n%s"), tail)
 		case <-ctx.Done():
 			return errors.New(i18n.T("等待内核启动超时"))
 		case <-tick.C:

@@ -5,13 +5,13 @@ import Modal from '../components/Modal.vue'
 import Switch from '../components/Switch.vue'
 import Segmented from '../components/Segmented.vue'
 import { api, type Outbound, type Profile } from '../api'
-import { run } from '../util'
+import { run, typeName } from '../util'
 import { nodesAdded } from '../state'
 
 const open = defineModel<boolean>({ required: true })
 const props = defineProps<{ profile: Profile | null; groupId: number }>()
 
-type Kind = 'text' | 'number' | 'select' | 'switch' | 'list'
+type Kind = 'text' | 'number' | 'select' | 'switch' | 'list' | 'headers'
 interface Field {
   key: string
   label: string
@@ -21,7 +21,7 @@ interface Field {
   show?: (ob: Outbound) => boolean
 }
 
-const TLS_TYPES = ['vmess', 'vless', 'trojan', 'http', 'hysteria2', 'tuic', 'anytls', 'shadowtls']
+const TLS_TYPES = ['vmess', 'vless', 'trojan', 'http', 'hysteria2', 'tuic', 'anytls', 'shadowtls', 'naive']
 const TRANSPORT_TYPES = ['vmess', 'vless', 'trojan']
 const hasTLS = (ob: Outbound) => !!ob.tls?.enabled
 const tr = (...t: string[]) => (ob: Outbound) => t.includes(ob.transport?.type ?? '')
@@ -63,6 +63,12 @@ const protocolFields: Record<string, Field[]> = {
     { key: 'udp_relay_mode', label: t('UDP 中继'), kind: 'select', options: ['native', 'quic'] },
   ],
   anytls: [{ key: 'password', label: t('密码') }],
+  naive: [
+    { key: 'username', label: t('用户名') },
+    { key: 'password', label: t('密码') },
+    { key: 'quic', label: t('使用 HTTP/3 (QUIC)'), kind: 'switch' },
+    { key: 'extra_headers', label: t('额外请求头'), kind: 'headers', placeholder: t('每行一个，例如 X-Client: nextbox') },
+  ],
   socks: [
     { key: 'version', label: t('版本'), kind: 'select', options: ['5', '4a', '4'] },
     { key: 'username', label: t('用户名') },
@@ -123,9 +129,10 @@ const sections = computed(() => {
   if (protocolFields[typ]) list.push({ title: t('协议'), fields: protocolFields[typ] })
   if (TRANSPORT_TYPES.includes(typ)) list.push({ title: t('传输'), fields: transportFields })
   if (TLS_TYPES.includes(typ)) {
-    // hysteria2 / tuic / anytls always use TLS
-    const always = ['hysteria2', 'tuic', 'anytls'].includes(typ)
-    list.push({ title: 'TLS', fields: always ? tlsFields.slice(1).map((f) => ({ ...f, show: undefined })) : tlsFields })
+    // hysteria2 / tuic / anytls / naive always use TLS; naive only takes the server name
+    const always = ['hysteria2', 'tuic', 'anytls', 'naive'].includes(typ)
+    const fields = typ === 'naive' ? tlsFields.slice(1, 2) : always ? tlsFields.slice(1) : tlsFields
+    list.push({ title: 'TLS', fields: always ? fields.map((f) => ({ ...f, show: undefined })) : fields })
   }
   return list.map((s) => ({ ...s, fields: s.fields.filter((f) => !f.show || f.show(ob.value)) }))
 })
@@ -165,6 +172,7 @@ function fieldValue(f: Field) {
   const v = getPath(ob.value, f.key)
   if (f.kind === 'list') return Array.isArray(v) ? v.join(', ') : v ?? ''
   if (f.kind === 'switch') return !!v
+  if (f.kind === 'headers') return v && typeof v === 'object' ? Object.entries(v).map(([k, x]) => `${k}: ${x}`).join('\n') : ''
   return v ?? ''
 }
 
@@ -173,6 +181,14 @@ function setField(f: Field, raw: any) {
   if (f.kind === 'number') v = raw === '' ? '' : Number(raw)
   if (f.kind === 'list') v = String(raw).split(',').map((s) => s.trim()).filter(Boolean)
   if (f.kind === 'switch') v = raw ? true : ''
+  if (f.kind === 'headers') {
+    const h: Record<string, string> = {}
+    for (const line of String(raw).split(/\r?\n/)) {
+      const i = line.indexOf(':')
+      if (i > 0 && line.slice(0, i).trim()) h[line.slice(0, i).trim()] = line.slice(i + 1).trim()
+    }
+    v = Object.keys(h).length ? h : ''
+  }
   const o = ob.value
   setPath(o, f.key, v)
   // keep sing-box "enabled" flags consistent with the fields being set
@@ -184,7 +200,7 @@ function setField(f: Field, raw: any) {
 
 function changeType(t: string) {
   const keep = { type: t, server: ob.value.server ?? '', server_port: ob.value.server_port ?? 443 } as Outbound
-  if (['hysteria2', 'tuic', 'anytls'].includes(t)) keep.tls = { enabled: true, ...(t === 'tuic' ? { alpn: ['h3'] } : {}) }
+  if (['hysteria2', 'tuic', 'anytls', 'naive'].includes(t)) keep.tls = { enabled: true, ...(t === 'tuic' ? { alpn: ['h3'] } : {}) }
   if (t === 'trojan') keep.tls = { enabled: true }
   ob.value = keep
 }
@@ -237,7 +253,7 @@ async function save() {
       <label class="field">
         <span class="faint">{{ t('协议') }}</span>
         <select class="select" :value="ob.type" :disabled="mode === 'json'" @change="changeType(($event.target as HTMLSelectElement).value)">
-          <option v-for="t in types" :key="t" :value="t">{{ t }}</option>
+          <option v-for="t in types" :key="t" :value="t">{{ typeName(t) }}</option>
           <option v-if="ob.type && !types.includes(ob.type)" :value="ob.type">{{ ob.type }}</option>
         </select>
       </label>
@@ -269,6 +285,15 @@ async function save() {
               <option v-for="o in f.options" :key="o" :value="o">{{ o || t('无') }}</option>
               <option v-if="fieldValue(f) && !f.options?.includes(fieldValue(f))" :value="fieldValue(f)">{{ fieldValue(f) }}</option>
             </select>
+            <textarea
+              v-else-if="f.kind === 'headers'"
+              class="textarea mono headers"
+              rows="2"
+              :value="fieldValue(f)"
+              :placeholder="f.placeholder"
+              spellcheck="false"
+              @change="setField(f, ($event.target as HTMLTextAreaElement).value)"
+            />
             <input
               v-else
               class="input"
@@ -332,6 +357,10 @@ async function save() {
 }
 .json {
   min-height: 320px;
+}
+.headers {
+  min-height: 52px;
+  flex: 1;
 }
 .error {
   margin-top: 8px;

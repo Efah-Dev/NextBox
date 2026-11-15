@@ -15,8 +15,20 @@ type Rule struct {
 	Disabled bool     `json:"disabled,omitempty"`
 }
 
+// Steps of the route that are not rules of their own but have a place among
+// them: ad blocking, and a scene (Values[0] is its ID). They keep the order
+// the user gives them; their state lives in BlockAds and Scenes.
+const (
+	KindAds   = "ads"
+	KindScene = "scene"
+)
+
+// IsStep reports whether r only marks the place of ad blocking or a scene.
+func (r Rule) IsStep() bool { return r.Kind == KindAds || r.Kind == KindScene }
+
 // RuleKinds are the things a rule can match.
-var RuleKinds = []string{"geosite", "suffix", "domain", "keyword", "regex", "geoip", "cidr", "process"}
+// "package" (an Android app) is only used by NextBox for Android.
+var RuleKinds = []string{"geosite", "suffix", "domain", "keyword", "regex", "geoip", "cidr", "process", "package"}
 
 const (
 	TargetProxy  = "proxy" // the node selected on the home page
@@ -99,8 +111,29 @@ xboxlive.com
 playstation.net
 nintendo.net`
 
-// DefaultDarkLevel reproduces the dark theme of earlier versions.
-const DefaultDarkLevel = 60
+// The levels that reproduce the light and dark themes of earlier versions,
+// on the scales of ThemeScale.
+const (
+	DefaultDarkLevel  = 60
+	DefaultLightLevel = 20
+	ThemeScale        = 2
+)
+
+// migrateLevels converts levels of the first scale (v2.0), whose end points
+// were closer together, so that the colours stay as they were: the light
+// scale gained a brighter part below DefaultLightLevel and reaches 1.55
+// times as far towards grey; the dark scale reaches 1.55 times as far
+// towards the lighter end (the black end is new and starts the same way).
+func (s *Settings) migrateLevels() {
+	if s.ThemeScale >= ThemeScale {
+		return
+	}
+	s.LightLevel = DefaultLightLevel + int(float64(s.LightLevel)*float64(100-DefaultLightLevel)/155+0.5)
+	if s.DarkLevel < DefaultDarkLevel {
+		s.DarkLevel = DefaultDarkLevel - int(float64(DefaultDarkLevel-s.DarkLevel)/1.55+0.5)
+	}
+	s.ThemeScale = ThemeScale
+}
 
 func clamp(v, lo, hi int) int { return max(lo, min(hi, v)) }
 
@@ -134,6 +167,7 @@ var kindAliases = map[string]string{
 	"domain": "domain", "full": "domain", "keyword": "keyword", "domain_keyword": "keyword",
 	"regex": "regex", "regexp": "regex", "domain_regex": "regex", "geoip": "geoip",
 	"cidr": "cidr", "ip": "cidr", "ip_cidr": "cidr", "process": "process", "process_name": "process",
+	"package": "package", "package_name": "package", "app": "package",
 }
 
 // NormalizeValue tidies a rule value for its kind ("" drops it).
@@ -167,6 +201,10 @@ func cleanRules(rules []Rule) []Rule {
 		known[k] = true
 	}
 	for _, r := range rules {
+		if r.IsStep() {
+			out = append(out, r) // see placeSteps
+			continue
+		}
 		if !known[r.Kind] {
 			continue
 		}
@@ -185,6 +223,58 @@ func cleanRules(rules []Rule) []Rule {
 		out = append(out, r)
 	}
 	return out
+}
+
+// placeSteps gives ad blocking and every scene exactly one place among the
+// rules. Data of v2.0 and of the Android version has none: ad blocking then
+// comes first and the scenes last, in the order they were checked in.
+func placeSteps(rules []Rule, scenes []Scene) []Rule {
+	known := map[string]bool{}
+	for _, sc := range scenes {
+		known[sc.ID] = true
+	}
+	seen := map[string]bool{}
+	out := make([]Rule, 0, len(rules)+len(scenes)+1)
+	for _, r := range rules {
+		if !r.IsStep() {
+			out = append(out, r)
+			continue
+		}
+		scene := ""
+		if r.Kind == KindScene {
+			if len(r.Values) > 0 {
+				scene = strings.ToLower(strings.TrimSpace(r.Values[0]))
+			}
+			if !known[scene] {
+				continue
+			}
+		}
+		if key := r.Kind + ":" + scene; !seen[key] {
+			seen[key] = true
+			out = append(out, stepRule(r.Kind, scene))
+		}
+	}
+	if !seen[KindAds+":"] {
+		out = append([]Rule{stepRule(KindAds, "")}, out...)
+	}
+	for _, sc := range sceneOrder {
+		if known[sc] && !seen[KindScene+":"+sc] {
+			out = append(out, stepRule(KindScene, sc))
+		}
+	}
+	return out
+}
+
+// sceneOrder is the order the scenes were checked in before they could be
+// moved (v2.0): the specific ones first, bypassing mainland China last.
+var sceneOrder = []string{"ai", "media", "games", "cn"}
+
+func stepRule(kind, scene string) Rule {
+	r := Rule{Kind: kind, Values: []string{}}
+	if kind == KindScene {
+		r.Values = []string{scene}
+	}
+	return r
 }
 
 // migrateRules turns the rule lists of v1.2 (and of the Android version) into

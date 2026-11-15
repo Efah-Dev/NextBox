@@ -2,7 +2,7 @@
 // targets are named.
 import { reactive } from 'vue'
 import { t } from './i18n'
-import { api, type PolicyView, type RuleKind, type Target } from './api'
+import { api, type PolicyView, type RuleKind, type StepKind, type Target } from './api'
 
 export const policies = reactive({ list: [] as PolicyView[], loaded: false })
 
@@ -51,6 +51,35 @@ export const ruleKinds: { value: RuleKind; label: string; placeholder: string }[
   { value: 'process', label: t('程序'), placeholder: 'chrome.exe' },
 ]
 
+/** Android apps: kept in the rules, only NextBox for Android uses them. */
+export const androidKind = { value: 'package' as RuleKind, label: t('安卓应用'), placeholder: 'com.example.app' }
+
+/** The scenes, as the route shows them. */
+export const sceneInfo = (id: string) =>
+  ({
+    cn: { label: t('绕过中国大陆'), desc: t('国内网站和国内 IP') },
+    ai: { label: t('AI 服务'), desc: 'ChatGPT · Claude · Gemini' },
+    media: { label: t('流媒体'), desc: 'YouTube · Netflix · Disney+' },
+    games: { label: t('游戏下载直连'), desc: t('Steam 等国内下载节点') },
+  })[id] ?? { label: id, desc: '' }
+
+export const sceneIds = ['ai', 'media', 'games', 'cn']
+
+/** The routing rules of a new installation (store.DefaultScenes and
+ * store.placeSteps): no rules of your own, ad blocking first, the scenes
+ * last with only the mainland China bypass on. */
+export function defaultRoute(): { rules: ParsedRule[]; scenes: { id: string; enabled: boolean; target: Target }[] } {
+  return {
+    rules: [{ kind: 'ads', values: [], target: '' }, ...sceneIds.map((id) => ({ kind: 'scene' as const, values: [id], target: '' }))],
+    scenes: [
+      { id: 'cn', enabled: true, target: 'direct' },
+      { id: 'ai', enabled: false, target: 'proxy' },
+      { id: 'media', enabled: false, target: 'proxy' },
+      { id: 'games', enabled: false, target: 'direct' },
+    ],
+  }
+}
+
 export const geosites = [
   { value: 'google', label: 'Google' },
   { value: 'youtube', label: 'YouTube' },
@@ -95,12 +124,12 @@ export const valueLabel = (kind: RuleKind, v: string) =>
 const kindAliases: Record<string, RuleKind> = {
   geosite: 'geosite', suffix: 'suffix', domain_suffix: 'suffix', domain: 'domain', full: 'domain',
   keyword: 'keyword', domain_keyword: 'keyword', regex: 'regex', regexp: 'regex', geoip: 'geoip',
-  cidr: 'cidr', ip: 'cidr', ip_cidr: 'cidr', process: 'process',
+  cidr: 'cidr', ip: 'cidr', ip_cidr: 'cidr', process: 'process', package: 'package', package_name: 'package', app: 'package',
 }
 const ipLike = /^(\d{1,3}(\.\d{1,3}){3}|[0-9a-f]*:[0-9a-f:]+)(\/\d{1,3})?$/i
 
 export interface ParsedRule {
-  kind: RuleKind
+  kind: RuleKind | StepKind
   values: string[]
   target: Target
   disabled?: boolean
@@ -113,21 +142,55 @@ function targetText(target: Target) {
   return p ? 'policy:' + p.name : 'proxy'
 }
 
-export function rulesToText(rules: ParsedRule[]): string {
-  const lines = [t('# 每行一条：类型:值, 去向（proxy 当前节点 / direct 直连 / block 拦截 / policy:分组代理名称）')]
+export function rulesToText(rules: ParsedRule[], sceneTargets: Record<string, Target> = {}): string {
+  const lines = [
+    t('# 每行一条：类型:值, 去向（proxy 当前节点 / direct 直连 / block 拦截 / policy:分组代理名称）'),
+    t('# ads 是屏蔽广告的位置，scene:… 是常用场景的位置，可以上下移动'),
+  ]
   for (const r of rules) {
-    for (const v of r.values) lines.push(`${r.disabled ? '# ' : ''}${r.kind}:${v}, ${targetText(r.target)}`)
+    if (r.kind === 'ads') lines.push('ads')
+    else if (r.kind === 'scene') {
+      const id = r.values[0]
+      lines.push(id === 'cn' ? 'scene:cn' : `scene:${id}, ${targetText(sceneTargets[id] ?? 'proxy')}`)
+    } else for (const v of r.values) lines.push(`${r.disabled ? '# ' : ''}${r.kind}:${v}, ${targetText(r.target)}`)
   }
   return lines.join('\n')
 }
 
+function parseTarget(right: string): Target | string[] {
+  const lower = right.toLowerCase()
+  if (lower === 'proxy' || lower === 'direct' || lower === 'block') return lower
+  if (lower.startsWith('policy:')) {
+    const name = right.slice(7).trim()
+    const p = policies.list.find((x) => x.name === name)
+    return p ? 'policy:' + p.id : ['policy', name]
+  }
+  return ['target', right]
+}
+
 /** Parses the text editor; errors are "line n: reason". */
-export function textToRules(text: string): { rules: ParsedRule[]; errors: string[] } {
+export function textToRules(text: string): { rules: ParsedRule[]; errors: string[]; sceneTargets: Record<string, Target> } {
   const rules: ParsedRule[] = []
   const errors: string[] = []
+  const sceneTargets: Record<string, Target> = {}
   text.split('\n').forEach((raw, i) => {
     const line = raw.trim()
     if (!line || line.startsWith('#')) return
+    // the places of ad blocking and of the scenes
+    if (line.toLowerCase() === 'ads') return rules.push({ kind: 'ads', values: [], target: '' })
+    if (line.toLowerCase().startsWith('scene:')) {
+      const [idPart, targetPart] = line.slice(6).split(',')
+      const id = idPart.trim().toLowerCase()
+      if (!sceneIds.includes(id)) return errors.push(t('第 {0} 行：没有叫“{1}”的常用场景', i + 1, idPart.trim()))
+      if (targetPart?.trim() && id !== 'cn') {
+        const tg = parseTarget(targetPart.trim())
+        if (Array.isArray(tg))
+          return errors.push(tg[0] === 'policy' ? t('第 {0} 行：没有叫“{1}”的分组代理', i + 1, tg[1]) : t('第 {0} 行：不认识的去向“{1}”', i + 1, tg[1]))
+        if (tg === 'block') return errors.push(t('第 {0} 行：常用场景不能设为拦截', i + 1))
+        sceneTargets[id] = tg
+      }
+      return rules.push({ kind: 'scene', values: [id], target: '' })
+    }
     const comma = line.lastIndexOf(',')
     if (comma < 0) return errors.push(t('第 {0} 行：缺少去向，例如 “{1}, direct”', i + 1, line))
     const left = line.slice(0, comma).trim()
@@ -155,5 +218,5 @@ export function textToRules(text: string): { rules: ParsedRule[]; errors: string
     if (last && last.kind === kind && last.target === target) last.values.push(value)
     else rules.push({ kind, values: [value], target })
   })
-  return { rules, errors }
+  return { rules, errors, sceneTargets }
 }
