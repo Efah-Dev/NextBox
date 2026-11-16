@@ -190,6 +190,17 @@ func locate(ctx context.Context, proxy *url.URL, timeout time.Duration) (geo.Loc
 	return geo.Trace(ctx, &http.Client{Transport: tr, Timeout: timeout})
 }
 
+// ExitNetwork asks, through the proxy, which network ip belongs to.
+func ExitNetwork(ctx context.Context, proxy *url.URL, ip string, timeout time.Duration) (geo.Network, error) {
+	tr := &http.Transport{Proxy: http.ProxyURL(proxy), ForceAttemptHTTP2: true, TLSHandshakeTimeout: timeout}
+	defer tr.CloseIdleConnections()
+	n, err := geo.LookupASN(ctx, &http.Client{Transport: tr, Timeout: timeout}, ip)
+	if err != nil {
+		return n, simplifyErr(err)
+	}
+	return n, nil
+}
+
 // simplifyErr strips Go's "Get \"url\": proxyconnect ..." wrapping.
 func simplifyErr(err error) error {
 	var ue *url.Error

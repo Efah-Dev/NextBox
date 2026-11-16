@@ -30,9 +30,11 @@ export interface Settings {
   scenes: Scene[]
   ruleSetMirror: string
   /** look of the routing rules page */
-  routeView?: 'path' | 'cards'
-  /** hide the scenes that are switched off */
+  routeView?: RouteView
+  /** hide the steps that are switched off (scenes, ad blocking) */
   routeHideOff?: boolean
+  /** the user has been asked which look to use */
+  routeViewAsked?: boolean
   remoteDns: string
   directDns: string
   enableIpv6: boolean
@@ -68,11 +70,15 @@ export type StepKind = 'ads' | 'scene'
 /** 'proxy' | 'direct' | 'block' | 'policy:<id>' */
 export type Target = string
 
+/** Looks of the routing rules page: the service catalog, the cards of v2.0, the route. */
+export type RouteView = 'path' | 'cards' | 'apps'
+
 export interface Rule {
   kind: RuleKind | StepKind
   values: string[]
   target: Target
   disabled?: boolean
+  app?: string // the service of the catalog it was set from
 }
 
 export interface Scene {
@@ -118,11 +124,20 @@ export interface RouteMatch {
   note?: string
 }
 
+/** A node that is kept and the copies of it (same connection, other names) that go. */
+export interface DupSet {
+  keep: Profile
+  drop: Profile[]
+  running?: boolean
+}
+
 export interface ExitInfo {
   nodeId: number
   checking: boolean
   ip: string
   country: string
+  asn?: number // the network of ip, looked up after it
+  org?: string
   latency: number
   error?: string
   at: number
@@ -355,6 +370,8 @@ export const api = {
   saveProfile: (p: Profile) => call<Profile>('SaveProfile', p),
   deleteProfiles: (ids: number[]) => call<void>('DeleteProfiles', ids),
   deleteUnavailable: (groupId: number) => call<number>('DeleteUnavailable', groupId),
+  findDuplicates: () => call<DupSet[] | null>('FindDuplicates'),
+  deleteDuplicates: () => call<number>('DeleteDuplicates'),
   sortGroup: (groupId: number, by: string) => call<void>('SortGroup', groupId, by),
   reorderProfiles: (groupId: number, ids: number[]) => call<void>('ReorderProfiles', groupId, ids),
   saveChain: (c: ChainInput) => call<Profile>('SaveChain', c),

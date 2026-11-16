@@ -5,6 +5,7 @@
 import { t } from '../../i18n'
 import Icon from '../../components/Icon.vue'
 import Switch from '../../components/Switch.vue'
+import MultiPick from '../../components/MultiPick.vue'
 import type { Rule } from '../../api'
 import { androidKind, geoips, geosites, ruleKinds, targetClass, targetOptions } from '../../policies'
 
@@ -21,7 +22,6 @@ function setKind(kind: Rule['kind']) {
   else props.rule.values = []
 }
 const listed = () => (props.rule.kind === 'geosite' ? geosites : props.rule.kind === 'geoip' ? geoips : null)
-const isListed = () => !!listed()?.some((x) => x.value === props.rule.values[0]) && props.rule.values.length === 1
 const placeholder = () => [...ruleKinds, androidKind].find((k) => k.value === props.rule.kind)?.placeholder || (props.rule.kind === 'geosite' ? 'netflix' : 'jp')
 const android = () => props.rule.kind === 'package'
 </script>
@@ -32,15 +32,7 @@ const android = () => props.rule.kind === 'package'
       <option v-for="k in ruleKinds" :key="k.value" :value="k.value">{{ k.label }}</option>
       <option v-if="android()" :value="androidKind.value">{{ androidKind.label }}</option>
     </select>
-    <select
-      v-if="listed() && (isListed() || !rule.values.length)"
-      :value="rule.values[0]"
-      class="select mini value"
-      @change="($event.target as HTMLSelectElement).value === '*' ? (rule.values = ['']) : (rule.values = [($event.target as HTMLSelectElement).value])"
-    >
-      <option v-for="o in listed()!" :key="o.value" :value="o.value">{{ o.label }}</option>
-      <option value="*">{{ t('其他（手动输入）…') }}</option>
-    </select>
+    <MultiPick v-if="listed()" v-model="rule.values" class="value" :options="listed()!" :placeholder="rule.kind === 'geosite' ? t('选择网站分类') : t('选择地区')" />
     <input
       v-else
       class="input mini value mono"

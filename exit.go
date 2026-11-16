@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"nextbox/internal/core"
+	"nextbox/internal/geo"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -19,6 +20,8 @@ type ExitInfo struct {
 	Checking bool   `json:"checking"`
 	IP       string `json:"ip"`
 	Country  string `json:"country"`
+	ASN      int    `json:"asn,omitempty"` // the network of IP, looked up after it
+	Org      string `json:"org,omitempty"`
 	Latency  int    `json:"latency"` // ms; -1 failed
 	Error    string `json:"error,omitempty"`
 	At       int64  `json:"at"` // unix ms
@@ -71,9 +74,56 @@ func (a *App) checkExit() {
 	a.mu.Lock()
 	stale := a.proc != proc || a.runningID != node
 	a.mu.Unlock()
-	if !stale {
+	if stale {
+		return
+	}
+	a.setExit(e)
+	if e.IP == "" {
+		return
+	}
+	// then the network (ASN) of the exit IP, which is shown once known
+	n, ok := a.cachedNetwork(e.IP)
+	if !ok {
+		var err error
+		if n, err = core.ExitNetwork(ctx, proxy, e.IP, timeout); err != nil {
+			return // the IP is shown without it
+		}
+		a.cacheNetwork(e.IP, n)
+	}
+	a.mu.Lock()
+	same := a.proc == proc && a.runningID == node && a.exit.IP == e.IP
+	a.mu.Unlock()
+	if same {
+		e.ASN, e.Org = n.ASN, n.Org
 		a.setExit(e)
 	}
+}
+
+// ASNs of exit IPs, kept for a day.
+const asnTTL = 24 * time.Hour
+
+type cachedASN struct {
+	net geo.Network
+	at  time.Time
+}
+
+func (a *App) cachedNetwork(ip string) (geo.Network, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	c, ok := a.asnCache[ip]
+	if !ok || time.Since(c.at) > asnTTL {
+		return geo.Network{}, false
+	}
+	return c.net, true
+}
+
+func (a *App) cacheNetwork(ip string, n geo.Network) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.asnCache == nil || len(a.asnCache) > 200 {
+		a.asnCache = map[string]cachedASN{}
+	}
+	a.asnCache[ip] = cachedASN{n, time.Now()}
 }
 
 // exitLoop checks after connecting and then every few minutes.

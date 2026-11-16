@@ -37,7 +37,7 @@ var i18nTW []byte
 //go:embed frontend/src/places.json
 var placesJSON []byte
 
-const Version = "2.1.0"
+const Version = "2.2.0"
 
 func main() {
 	startMinimised := false

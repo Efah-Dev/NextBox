@@ -35,6 +35,7 @@ The full license texts are included in the release package under `licenses/`.
 | maxminddb-golang (`github.com/oschwald/maxminddb-golang`) | ISC |
 | country-flag-emoji-polyfill (font loading approach) | MIT |
 | Twemoji Country Flags font (flag emoji, embedded) | CC-BY-4.0, artwork from Twemoji (https://github.com/twitter/twemoji) |
+| Simple Icons 13.21.0 (service icons of the routing rules catalog, `frontend/src/services.ts`) | CC0-1.0 (https://github.com/simple-icons/simple-icons); the brands and logos belong to their owners and only show which service a row is about |
 | Other indirect Go modules (see `go.mod` / `go.sum`) | MIT / BSD / Apache-2.0 |
 
 ## Rule-set data

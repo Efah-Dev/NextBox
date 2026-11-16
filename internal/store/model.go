@@ -132,10 +132,13 @@ type Settings struct {
 	BlockRules    string `json:"blockRules,omitempty"`
 	RuleSetMirror string `json:"ruleSetMirror"`
 	// How the routing rules page looks: "path" (the route, steps in order;
-	// the default) or "cards" (the scene cards and a rule list of v2.0).
-	// RouteHideOff hides the scenes that are switched off. Display only.
-	RouteView    string `json:"routeView,omitempty"`
-	RouteHideOff bool   `json:"routeHideOff,omitempty"`
+	// the default), "cards" (the scene cards and a rule list of v2.0) or
+	// "apps" (the service catalog, v2.2). RouteHideOff hides the steps that
+	// are switched off (scenes, ad blocking). RouteViewAsked is set once the
+	// user has been asked which look to use. Display only.
+	RouteView      string `json:"routeView,omitempty"`
+	RouteHideOff   bool   `json:"routeHideOff,omitempty"`
+	RouteViewAsked bool   `json:"routeViewAsked,omitempty"`
 
 	RemoteDNS  string `json:"remoteDns"`
 	DirectDNS  string `json:"directDns"`
@@ -203,7 +206,7 @@ func DefaultSettings() Settings {
 		TestURL:          "https://www.google.com/generate_204",
 		TestTimeout:      5000,
 		TestConcurrency:  16,
-		SubUserAgent:     "NextBox/2.1.0 (sing-box; ClashMeta compatible)",
+		SubUserAgent:     "NextBox/2.2.0 (sing-box; ClashMeta compatible)",
 		SubUpdateHours:   12,
 		CountrySource:    CountryExit,
 		LogLevel:         "info",

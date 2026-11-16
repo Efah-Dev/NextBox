@@ -6,6 +6,7 @@ import Menu from '../components/Menu.vue'
 import Flag from '../components/Flag.vue'
 import NodeEditor from './NodeEditor.vue'
 import ChainEditor from './ChainEditor.vue'
+import DupDialog from './DupDialog.vue'
 import { api, rt, type Profile } from '../api'
 import { currentGroup, latencyTest, nodesAdded, settings, state } from '../state'
 import { bareName, countryMatches, countryTitle, nodeCountry } from '../country'
@@ -215,6 +216,8 @@ async function copyAll() {
   }
 }
 
+const dupOpen = ref(false)
+
 async function deleteUnavailable() {
   if (await confirmDialog(t('删除失效节点'), t('将删除本分组中最近一次测速失败的节点。'), true)) {
     run(() => api.deleteUnavailable(groupId.value), (n) => t('已删除 {0} 个节点', n))
@@ -258,6 +261,7 @@ const moreItems = computed<MenuItem[]>(() => [
   { label: t('按协议排序'), icon: 'sort', action: () => run(() => api.sortGroup(groupId.value, 'type')) },
   { label: t('复制全部分享链接'), icon: 'copy', action: copyAll },
   { label: t('编辑分组'), icon: 'edit', action: editGroup },
+  { label: t('删除重复节点'), hint: t('检查所有分组，连接参数相同的只留一个'), icon: 'trash', danger: true, action: () => (dupOpen.value = true) },
   { label: t('删除失效节点'), icon: 'trash', danger: true, action: deleteUnavailable },
   { label: t('删除分组'), icon: 'trash', danger: true, action: deleteGroup },
 ])
@@ -451,6 +455,7 @@ function boltTitle(p: Profile) {
 
     <NodeEditor v-model="editorOpen" :profile="editing" :group-id="groupId" />
     <ChainEditor v-model="chainOpen" :profile="editingChain" :group-id="groupId" />
+    <DupDialog v-model="dupOpen" />
   </div>
 </template>
 

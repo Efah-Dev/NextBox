@@ -109,6 +109,8 @@ func (a *App) updateSubscription(groupID int64, keepOrder bool) (string, error) 
 	for _, n := range res.Nodes {
 		profiles = append(profiles, store.Profile{Name: n.Name, Type: n.Type(), Outbound: n.Outbound})
 	}
+	all := len(profiles)
+	profiles = store.DedupeList(profiles)
 	if err := a.store.ReplaceGroupProfiles(groupID, profiles, keepOrder && g.ManualOrder); err != nil {
 		return "", err
 	}
@@ -120,6 +122,9 @@ func (a *App) updateSubscription(groupID int64, keepOrder bool) (string, error) 
 	}
 	a.store.UpdateGroup(g)
 	msg := fmt.Sprintf(i18n.T("“%s”更新完成：%d 个节点"), g.Name, len(profiles))
+	if n := all - len(profiles); n > 0 {
+		msg += fmt.Sprintf(i18n.T("（去掉了 %d 个重复节点）"), n)
+	}
 	msg += a.skipNote(res.Skipped)
 	a.log(msg)
 	a.emitState()
@@ -229,6 +234,34 @@ func (a *App) DeleteProfiles(ids []int64) error {
 	}
 	a.emitState()
 	return err
+}
+
+// FindDuplicates lists the nodes of all groups that connect the same way as
+// another one (see store.FindDuplicates), for the confirmation.
+func (a *App) FindDuplicates() []store.DupSet {
+	return a.store.FindDuplicates(a.runningNode())
+}
+
+// DeleteDuplicates removes them and returns how many went.
+func (a *App) DeleteDuplicates() (int, error) {
+	n, err := a.store.DeleteDuplicates(a.runningNode())
+	if n > 0 {
+		for _, g := range a.store.Groups() {
+			a.emitProfiles(g.ID)
+		}
+		a.emitState()
+	}
+	return n, err
+}
+
+// runningNode is the node the core runs, 0 when it is stopped.
+func (a *App) runningNode() int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.proc == nil {
+		return 0
+	}
+	return a.runningID
 }
 
 // DeleteUnavailable removes nodes whose last latency test failed.

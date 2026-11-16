@@ -46,8 +46,9 @@ type App struct {
 	tunActive    bool
 	exit         ExitInfo // see exit.go
 	exitMu       sync.Mutex
-	autoStarted  bool  // started by Windows (--minimized)
-	autoStartAt  int64 // when, as recorded in autostart.json
+	asnCache     map[string]cachedASN // see exit.go
+	autoStarted  bool                 // started by Windows (--minimized)
+	autoStartAt  int64                // when, as recorded in autostart.json
 	autoLogMu    sync.Mutex
 	fileLog      atomic.Pointer[logfile.Writer] // nil while file logging is off
 	quitting     bool                           // set by Quit so the close handler lets the window go

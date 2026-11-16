@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // 开机自启 with a check of what Windows will really do: an animated green
 // tick when NextBox is registered and enabled, a red cross with the reason
-// and a fix otherwise; below, what happened the last times Windows started
-// it (or did not).
+// and a fix otherwise; in the middle, a short line on what happened the last
+// time Windows started (or should have started) it.
 import { t } from '../../i18n'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Switch from '../../components/Switch.vue'
@@ -69,8 +69,11 @@ const location = computed(() => {
   return ''
 })
 
-// ---- the last starts by Windows
-const records = computed(() => (status.value?.records ?? []).slice(0, 3))
+// ---- the last start by Windows
+const last = computed(() => {
+  const r = status.value?.records?.[0]
+  return r ? { at: when(r.at), ...describe(r) } : null
+})
 function when(at: number) {
   const d = new Date(at * 1000)
   const hm = d.toTimeString().slice(0, 5)
@@ -94,7 +97,7 @@ function describe(r: AutoStartRecord): { cls: string; text: string; note?: strin
     case 'started':
       return { cls: 'good', text: t('已启动'), note: r.detail }
     case 'missed':
-      return { cls: 'bad', text: t('这次开机没有启动'), note: t('可能被安全软件拦截了：在 360、火绒、电脑管家等软件的“启动项管理”里允许 NextBox') }
+      return { cls: 'bad', text: t('没有启动'), note: t('可能被安全软件拦截了：在 360、火绒、电脑管家等软件的“启动项管理”里允许 NextBox') }
   }
   return { cls: '', text: r.result }
 }
@@ -112,6 +115,11 @@ async function fix() {
   <div class="form-row autostart">
     <div class="label">{{ t('开机自启') }}<span class="hint">{{ t('启动 Windows 后自动运行') }}</span></div>
     <div class="control">
+      <span v-if="enabled && last" class="last" :title="last.note">
+        <span class="faint">{{ t('上次开机') }} {{ last.at }}</span>
+        <span class="dot">·</span>
+        <span :class="last.cls">{{ last.text }}</span>
+      </span>
       <span class="spacer" />
       <template v-if="enabled && status">
         <span v-if="status.ok" :key="'ok' + seq" class="status ok" :title="status.method === 'task' ? t('通过计划任务以管理员身份启动') : t('通过注册表启动项启动')">
@@ -138,14 +146,6 @@ async function fix() {
     <div>
       <b>{{ t('程序放的位置开机时可能找不到') }}</b>
       <span>{{ location }}</span>
-    </div>
-  </div>
-  <div v-if="enabled && records.length" class="records">
-    <div class="records-title">{{ t('最近几次开机') }}</div>
-    <div v-for="r in records" :key="r.at + r.result" class="record">
-      <span class="at mono">{{ when(r.at) }}</span>
-      <span :class="describe(r).cls">{{ describe(r).text }}</span>
-      <span v-if="describe(r).note" class="note" :title="describe(r).note">{{ describe(r).note }}</span>
     </div>
   </div>
 </template>
@@ -233,54 +233,30 @@ async function fix() {
 .warn-box b {
   color: var(--mid);
 }
-.records {
-  margin: 0 0 10px 236px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+/* the last start, in the middle of the row */
+.last {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
   font-size: 12px;
+  white-space: nowrap;
   overflow: hidden;
 }
-.records-title {
-  padding: 6px 10px;
-  font-size: 11px;
-  font-weight: 700;
+.last .dot {
   color: var(--text-3);
-  background: var(--hover);
 }
-.record {
-  display: grid;
-  grid-template-columns: 86px auto minmax(0, 1fr);
-  align-items: baseline;
-  gap: 10px;
-  padding: 6px 10px;
-  border-top: 1px solid var(--line);
-}
-.record .at {
-  color: var(--text-3);
-  font-size: 11.5px;
-}
-.record .good {
+.last .good {
   color: var(--good);
   font-weight: 700;
 }
-.record .bad {
+.last .bad {
   color: var(--bad);
   font-weight: 700;
 }
-.record .mid {
+.last .mid {
   color: var(--mid);
   font-weight: 700;
-}
-.record .note {
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-@media (max-width: 900px) {
-  .records {
-    margin-left: 0;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .ring,

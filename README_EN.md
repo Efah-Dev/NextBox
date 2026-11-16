@@ -38,17 +38,22 @@ with a rewritten launcher-style interface, the current sing-box configuration fo
 
 - 🔌 **Protocols**: Shadowsocks (incl. ShadowTLS), VMess, VLESS (incl. Reality / Vision), Trojan, Hysteria2, TUIC, AnyTLS, NaiveProxy, SOCKS, HTTP
 - 📡 **Subscriptions**: Base64 link lists, Clash / Clash.Meta YAML, sing-box JSON; shows used traffic and expiry date; optional automatic updates at an interval you choose
-- 🗂️ **Nodes**: form editor for common fields, or edit the full sing-box outbound JSON; drag to reorder; search, sort, bulk delete; export share links
+- 🗂️ **Nodes**: form editor for common fields, or edit the full sing-box outbound JSON; drag to reorder; search, sort, bulk delete; delete duplicates in one go (nodes of all groups that connect the same way, one is kept); export share links
 - 🚩 **Flags and country search**: a flag in front of every node, by exit IP by default (checked during URL tests) or by server IP; searching "Hong Kong" or "香港" finds HK, 🇭🇰 and Hong Kong nodes alike
 - ⛓️ **Chain proxies**: send traffic through 2 to 8 nodes in a row, e.g. an airport node as the entry and your own VPS as the exit; members come from any group, can be reordered by dragging, and the whole chain can be tested before saving
 - 🔀 **Switch nodes without dropping connections**: the nodes of a group are loaded into the core together, so switching does not restart it and open connections (a running download, for example) are not cut
 - ⚡ **Latency test**: URL test (round trip on an established connection, same method as NekoBox) and TCP test; a bolt button on every node tests just that node; protocols over UDP (Hysteria2, TUIC …) and chain proxies always use a URL test; configurable URL, timeout and concurrency
-- 🧭 **Routing**: global (the default, nothing to set up) / rule-based (bypasses mainland China by default) / direct. In rule-based mode the *Route* shows the order every connection is checked in as one line: ad blocking, the scenarios (AI services, streaming, game downloads direct, bypass mainland China) and your own rules (site categories, domains, IPs, programs) are steps you can drag into any order; each rule sends traffic to the current node, direct, blocked or a policy group, and can also be edited as text; test a website or IP and the route lights up step by step to the one that matches. The *Cards* style of v2.0 is still available; both styles have *Reset*, and the route can hide the scenes that are off
+- 🧭 **Routing**: global (the default, nothing to set up) / rule-based (bypasses mainland China by default) / direct. Rule-based mode has three styles that edit the same rules; the first time, NextBox suggests one by how well you know proxy tools:
+  - **Services** (for beginners): 50+ common services (AI, video & music, social, tools, games, China) with their icons; one click sends a service through the current node, direct, blocked or through a policy group
+  - **Cards** (for the curious): turn on the scenarios (AI services, streaming, game downloads direct, bypass mainland China), then add rules of your own
+  - **Route** (for experts): the order every connection is checked in as one line; ad blocking, the scenarios and your own rules can be dragged into any order; steps that are off can be hidden
+
+  Rules match site categories (several at once), domains, IP regions (several at once), IP ranges and programs, and can be edited as text; testing a website or IP shows which rule matches. All three styles have *Reset*
 - 🧩 **Policy groups**: group nodes by region, name keywords or by hand, use the fastest automatically or pick one, and send different sites through different groups (YouTube via Japan, Google via the US); groups by region or keyword pick up new nodes after subscription updates
 - 🚫 **Ad blocking**: works in every routing mode
-- 📍 **Exit info**: once connected, the home page shows the node's flag, exit IP (masked by default) and a status light, checked again regularly
+- 📍 **Exit info**: once connected, the home page shows the node's flag, exit IP (masked by default), its network (ASN, e.g. `AS13335 Cloudflare`) and a status light, with a button to copy the exit IP; checked again regularly
 - 🖥️ **System proxy**: set automatically on connect, including dial-up (PPPoE) and Windows VPN connections; restored on disconnect, exit and core crash; cleared first thing at Windows logoff / shutdown, and cleared at the next logon if NextBox was killed before it could
-- 🚀 **Autostart**: Settings shows whether Windows will really start NextBox; a disabled entry, a moved program and similar problems are explained with a one-click fix; with TUN mode NextBox starts through a scheduled task as administrator; optionally connects to the last node after starting with Windows and shows the window when that fails; the last starts are recorded, so a start blocked by security software shows up
+- 🚀 **Autostart**: Settings shows whether Windows will really start NextBox; a disabled entry, a moved program and similar problems are explained with a one-click fix; with TUN mode NextBox starts through a scheduled task as administrator; optionally connects to the last node after starting with Windows and shows the window when that fails; shows how the last boot went, so a start blocked by security software shows up
 - 🛡️ **TUN mode**: captures all traffic (requires administrator; one-click "Restart as administrator"); *TUN exclusions* keep the networks of Tailscale, ZeroTier and the like out of TUN, added in one click from an adapter; optional FakeIP with an editable exclusion list
 - 💾 **Backup & encryption**: export / import nodes and subscriptions, routing rules and other settings separately, encrypted with a password (AES-256, the same format as the Android version; Android-only rules and preferences are kept); the node list on disk can be encrypted too (tied to your Windows account, or with a start-up password); the core configuration is no longer written to disk
 - 🌍 **DNS**: remote DNS through the proxy, direct DNS locally; UDP / TCP / DoT / DoQ / DoH / DoH3
@@ -73,7 +78,9 @@ and on up-to-date Windows 10).
 > Switching nodes without dropping connections, automatic subscription updates, the update check and the
 > system proxy for dial-up connections are available from v1.1.0 on; chain proxies, drag to reorder and
 > flags with country search from v1.2.0 on; policy groups, the new routing rules, backup & encryption, FakeIP
-> and the autostart check from v2.0.0 on; NaiveProxy, the reorderable route and TUN exclusions from v2.1.0 on.
+> and the autostart check from v2.0.0 on; NaiveProxy, the reorderable route and TUN exclusions from v2.1.0 on;
+> the service catalog, multiple site categories per rule, deleting duplicate nodes and the ASN of the exit IP
+> from v2.2.0 on.
 
 ## 🚀 Quick start
 
@@ -111,7 +118,7 @@ Everything lives next to `NextBox.exe` (portable); to move NextBox to another PC
 | `config/rule-set/` | Downloaded geosite / geoip rule-sets |
 | `config/logs/` | Log files (only when *Log to file* is enabled) |
 | `config/cache/` | Temporary files of latency tests, emptied afterwards |
-| `config/autostart.json` | What happened the last times Windows started NextBox |
+| `config/autostart.json` | What happened when Windows started NextBox |
 | `config/android.json` | Android preferences from an imported backup, exported again with the settings |
 
 With *Encrypt nodes and subscriptions* set to *Tied to your Windows account*, `profiles.json` only opens under
@@ -179,17 +186,25 @@ opens (when started with Windows it waits on the unlock screen); a forgotten pas
 
 **Autostart does not work.** Settings → General → *Start with Windows* shows the result of a check. A
 disabled entry, a moved program or TUN mode without administrator rights are explained; click the fix button.
-Below, *Recent starts with Windows* lists what happened after each boot: "Not started after this boot" usually
-means security software blocked the startup entry. When connecting after a start with Windows fails, the window
+The middle of that row shows how the last boot went: "Did not start" usually means security software
+blocked the startup entry. When connecting after a start with Windows fails, the window
 opens with the reason.
 
 **TUN mode breaks Tailscale / ZeroTier.** Add their networks under Settings → TUN mode → *TUN exclusions*
 (Tailscale uses `100.64.0.0/10`, or click *Add from an adapter*); those addresses then bypass NextBox.
 
-**How do I change the order of the rules?** Drag the handle of a step in the route under Settings → Routing
-rules. The first step (LAN) and the last one (everything else) are fixed; everything in between can be moved.
-Prefer the scene cards and rule list of v2.0? Choose *Cards* under *Style*. Rules in a mess? *Reset* at the bottom
-starts over.
+**Which of the three rule styles?** *Services* if you'd rather not deal with rules: pick where each common
+service goes. *Cards* to add a few rules of your own. *Route* to see and change the order of every step. Switch
+any time under *Style*; *Help me choose* next to it opens the suggestion again.
+
+**How do I change the order of the rules?** In the *Route* style, drag the handle of a step. The first step
+(LAN) and the last one (everything else) are fixed; everything in between can be moved. Services chosen in the
+catalog go to the top, before the scenarios. Rules in a mess? *Reset* at the bottom starts over.
+
+**How do I delete duplicate nodes?** Nodes → *⋯* at the top right → *Delete duplicate nodes*. All groups are
+checked; of the nodes whose server, port, password and other connection settings are the same, one is kept. The
+list of what is kept and deleted is shown first; the node in use is never deleted, and policy groups and chain
+proxies use the kept one instead. Duplicates within one subscription are left out whenever it updates.
 
 **What is FakeIP?** TUN mode only: proxied domains first get a placeholder 198.18.x.x address, which makes
 first connections faster and keeps DNS from leaking. After disconnecting, a few programs may keep the
@@ -234,7 +249,7 @@ For live development use `wails dev`. Every push and pull request is tested and 
 main.go, app.go, support.go   Wails entry point and the API exposed to the UI
 background.go                 Automatic subscription updates, update check
 policy.go, backup.go          Policy groups and the rule tester, backups and encryption
-exit.go, startup.go           Exit IP checks; autostart check, cleanup at shutdown
+exit.go, startup.go           Exit IP and ASN checks; autostart check, cleanup at shutdown
 autostart_log.go              Records of every start by Windows
 tunexclude.go                 TUN exclusions: checks and the adapter list
 tray.go                       System tray
@@ -254,7 +269,8 @@ internal/
   sys/       System proxy, elevation, autostart (Windows)
 frontend/src/
   views/        Home, Nodes, Connections, Logs, Settings (settings/ holds the sections)
-  components/   Title bar, cards, dialogs, rule editor, …
+  components/   Title bar, cards, dialogs, multi-select, service icons, …
+  services.ts   The services of the catalog and their icons (Simple Icons)
   i18n/         en.json (Chinese → English), zh-TW.json (Simplified → Traditional)
 scripts/build-core.ps1   Builds sing-box from source
 docs/render/             Source of the README hero images
@@ -290,6 +306,7 @@ node docs/render/render.mjs
 - [SagerNet/sing-box](https://github.com/SagerNet/sing-box): proxy core
 - [SagerNet/sing-geosite](https://github.com/SagerNet/sing-geosite), [sing-geoip](https://github.com/SagerNet/sing-geoip): rule-sets
 - [Wails](https://wails.io), [Vue](https://vuejs.org), [fyne systray](https://github.com/fyne-io/systray), [Noto Sans SC](https://github.com/notofonts/noto-cjk)
+- [Simple Icons](https://github.com/simple-icons/simple-icons): icons of the service catalog
 - Developed with the help of Claude (Anthropic)
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for licenses.

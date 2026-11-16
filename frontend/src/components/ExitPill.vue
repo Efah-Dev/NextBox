@@ -1,13 +1,15 @@
 <script setup lang="ts">
-// Where the connected node's traffic leaves (日志卡片右下角): flag, node,
-// exit IP and a status light. Click to check again.
+// Where the connected node's traffic leaves (日志卡片右下角): flag, node, the
+// network (ASN) and exit IP, a button to copy the IP and a status light.
+// Click to check again.
 import { t } from '../i18n'
 import { computed, ref } from 'vue'
 import Flag from './Flag.vue'
 import Icon from './Icon.vue'
-import { api } from '../api'
+import { api, rt } from '../api'
 import { selectedProfile, state } from '../state'
 import { bareName, countryName } from '../country'
+import { toast } from '../util'
 
 const reveal = ref(false)
 const exit = computed(() => state.exit)
@@ -46,6 +48,31 @@ const title = computed(() => {
   return t('落地 IP {0}（{1}），延迟 {2} ms{3}。点击重新检测', e.ip, where, e.latency, slow)
 })
 
+/** "Cloudflare, Inc." → "Cloudflare": the company forms are left out. */
+function shortOrg(org: string) {
+  return org
+    .replace(/[,.]?\s+(inc|llc|ltd|limited|co|corp|corporation|gmbh|s\.?a|b\.?v|pte|plc|ag|oy|ab|srl|sas|kk)\b\.?/gi, '')
+    .replace(/[,.\s]+$/, '')
+    .trim()
+}
+const network = computed(() => {
+  const e = exit.value
+  if (!e?.asn || e.checking) return null
+  const org = shortOrg(e.org ?? '')
+  return { text: org ? `AS${e.asn} ${org}` : `AS${e.asn}`, full: `AS${e.asn} ${e.org ?? ''}`.trim() }
+})
+
+const copied = ref(false)
+let copiedTimer = 0
+async function copyIP() {
+  const ip = exit.value?.ip
+  if (!ip) return
+  if (!(await rt.clipboardSet(ip))) return toast(t('复制失败'), 'error')
+  copied.value = true
+  clearTimeout(copiedTimer)
+  copiedTimer = window.setTimeout(() => (copied.value = false), 1500)
+}
+
 function refresh() {
   if (exit.value?.checking) return
   api.refreshExit()
@@ -57,6 +84,7 @@ function refresh() {
     <Flag :code="exit?.country ?? ''" :size="15" />
     <span class="txt">
       <span class="name ellipsis">{{ selectedProfile ? bareName(selectedProfile.name) : '' }}</span>
+      <span v-if="network" class="asn ellipsis" :title="t('落地 IP 所属网络：{0}', network.full)">{{ network.text }}</span>
       <span class="ip mono">{{ ipText }}</span>
     </span>
     <span
@@ -66,6 +94,9 @@ function refresh() {
       @click.stop="reveal = !reveal"
     >
       <Icon :name="reveal ? 'eye-off' : 'eye'" :size="13" />
+    </span>
+    <span v-if="exit?.ip && !exit.checking" class="eye" :class="{ done: copied }" :title="t('复制落地 IP')" @click.stop="copyIP">
+      <Icon :name="copied ? 'check' : 'copy'" :size="13" />
     </span>
     <span class="dot" :class="light" />
   </button>
@@ -118,6 +149,16 @@ function refresh() {
   color: var(--text-3);
   padding: 2px;
   border-radius: 5px;
+}
+.eye.done {
+  color: var(--good);
+}
+.asn {
+  font-size: 11.5px;
+  color: var(--text-3);
+  min-width: 0;
+  max-width: 150px;
+  line-height: 1.25;
 }
 .eye:hover {
   color: var(--accent);

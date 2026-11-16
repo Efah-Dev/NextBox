@@ -1,17 +1,19 @@
 <script setup lang="ts">
-// 分流规则: the routing mode, and in rule mode the rules, in one of two looks
-// the user picks:
+// 分流规则: the routing mode, and in rule mode the rules, in one of three
+// looks the user picks (simplest first):
+// - 服务目录 (apps): well-known services with icons, each sent somewhere with
+//   one pick (ServiceCatalog); a pick is an ordinary rule at the top.
+// - 卡片 (cards): the look of v2.0, scene cards and a list of the user's own
+//   rules. The places of ad blocking and the scenes stay where they are;
+//   dragging only reorders the user's rules among themselves.
 // - 路由路径 (path): the route every connection takes, from top to bottom.
 //   LAN addresses come first and "everything else" last; in between, ad
 //   blocking, the scenes and the user's own rules are steps that can be
 //   dragged into any order. A test lights the path up to the step that
-//   matches.
-// - 卡片 (cards): the look of v2.0, scene cards and a list of the user's own
-//   rules. The places of ad blocking and the scenes stay where they are;
-//   dragging only reorders the user's rules among themselves.
-// Both share the data (Settings.Rules with the step places), the tester, the
-// text mode and a reset to the defaults. The path can also hide the scenes
-// that are off.
+//   matches. The steps that are off can be hidden.
+// All share the data (Settings.Rules with the step places), the tester and a
+// reset to the defaults; cards and path also the text mode. The first time
+// the section is seen, a guide helps choosing the look (RouteStyleGuide).
 import { t } from '../../i18n'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import Card from '../../components/Card.vue'
@@ -19,11 +21,14 @@ import Icon from '../../components/Icon.vue'
 import Switch from '../../components/Switch.vue'
 import Segmented from '../../components/Segmented.vue'
 import RuleFields from './RuleFields.vue'
-import { api, type Rule, type RouteMatch, type Settings } from '../../api'
+import ServiceCatalog from './ServiceCatalog.vue'
+import RouteStyleGuide from './RouteStyleGuide.vue'
+import { api, type Rule, type RouteMatch, type RouteView, type Settings } from '../../api'
+import { serviceOf } from '../../services'
 import { useDragSort } from '../../drag'
 import {
-  androidKind, defaultRoute, policies, refreshPolicies, ruleKinds, rulesToText, sceneInfo, targetClass, targetLabel,
-  targetOptions, textToRules,
+  androidKind, defaultRoute, finalLabel as finalOf, isStep, policies, refreshPolicies, ruleKinds, rulesToText, sceneCards,
+  sceneInfo, targetClass, targetLabel, targetOptions, textToRules,
 } from '../../policies'
 import { confirmDialog, run, toast } from '../../util'
 
@@ -39,23 +44,47 @@ const mirrors = [
 
 const sceneOf = (id: string) => form.scenes.find((s) => s.id === id)
 const ruleMode = computed(() => form.routeMode === 'rule')
-const isStep = (r: Rule) => r.kind === 'ads' || r.kind === 'scene'
 
-const view = computed({
-  get: () => (form.routeView === 'cards' ? 'cards' : 'path'),
-  set: (v: 'path' | 'cards') => (form.routeView = v),
+const view = computed<RouteView>({
+  get: () => (form.routeView === 'cards' || form.routeView === 'apps' ? form.routeView : 'path'),
+  set: (v) => (form.routeView = v),
 })
 const hideOff = computed({ get: () => !!form.routeHideOff, set: (v: boolean) => (form.routeHideOff = v) })
-const sceneHidden = (r: Rule) => hideOff.value && r.kind === 'scene' && !sceneOf(r.values[0])?.enabled
+// what the switch hides: ad blocking and the scenes while they are off
+const stepHidden = (r: Rule) =>
+  hideOff.value && ((r.kind === 'scene' && !sceneOf(r.values[0])?.enabled) || (r.kind === 'ads' && !form.blockAds))
 
-onMounted(refreshPolicies)
+// ---- the guide, once: when the top of the section has come up past the
+// lower part of the window (a share of the card would never be reached by a
+// long list of rules)
+const guideOpen = ref(false)
+let seen: IntersectionObserver | undefined
+onMounted(() => {
+  refreshPolicies()
+  const el = document.getElementById('sec-route')
+  if (form.routeViewAsked || !el || !('IntersectionObserver' in window)) return
+  seen = new IntersectionObserver(
+    (entries) => {
+      if (!entries.some((e) => e.isIntersecting) || form.routeViewAsked) return
+      seen?.disconnect()
+      guideOpen.value = true
+    },
+    { rootMargin: '0px 0px -40% 0px' },
+  )
+  seen.observe(el)
+})
+onUnmounted(() => seen?.disconnect())
+function guideDone(v: RouteView | null) {
+  form.routeViewAsked = true
+  if (v) view.value = v
+}
 
 // ---- the path: position 0 = LAN, 1..n = form.rules, n + 1 = everything else
 const last = computed(() => form.rules.length + 1)
 
 /** The steps shown on the path (i = index in form.rules). */
-const pathItems = computed(() => form.rules.map((r, i) => ({ r, i })).filter((x) => !sceneHidden(x.r)))
-const hiddenCount = computed(() => form.rules.filter(sceneHidden).length)
+const pathItems = computed(() => form.rules.map((r, i) => ({ r, i })).filter((x) => !stepHidden(x.r)))
+const hiddenCount = computed(() => form.rules.filter(stepHidden).length)
 
 /** Whether a step takes part with the current settings. */
 function stepActive(r: Rule) {
@@ -78,7 +107,7 @@ function skipNote(r: Rule) {
   return ''
 }
 
-const finalLabel = computed(() => (form.routeMode === 'direct' ? t('直连') : t('当前节点')))
+const finalLabel = computed(() => finalOf(form.routeMode))
 
 const kindLabel = (k: string) => [...ruleKinds, androidKind].find((x) => x.value === k)?.label ?? k
 function stepTitle(pos: number) {
@@ -87,6 +116,7 @@ function stepTitle(pos: number) {
   const r = form.rules[pos - 1]
   if (r.kind === 'ads') return t('屏蔽广告')
   if (r.kind === 'scene') return sceneInfo(r.values[0]).label
+  if (r.app && serviceOf(r.app)) return serviceOf(r.app)!.name
   return `${kindLabel(r.kind)} ${r.values.join(', ')}`
 }
 
@@ -99,7 +129,7 @@ const excluded = computed(() =>
 )
 
 // ---- the cards: scenes in a fixed order, the user's own rules as a list
-const cardScenes = ['cn', 'ai', 'media', 'games'].map((id) => ({ id, ...sceneInfo(id) }))
+const cardScenes = sceneCards()
 const ownItems = computed(() => form.rules.map((r, i) => ({ r, i })).filter((x) => !isStep(x.r)))
 const ownCount = computed(() => ownItems.value.length)
 
@@ -165,6 +195,7 @@ async function resetRules() {
 
 // ---- text mode
 const textMode = ref(false)
+watch(view, () => (textMode.value = false))
 const text = ref('')
 const textErrors = ref<string[]>([])
 function openText() {
@@ -255,13 +286,15 @@ const verdict = computed(() => {
   if (!m) return ''
   const where = m.target === 'final' ? finalLabel.value : targetLabel(m.target)
   if (m.source === 'excluded') return t('在 TUN 排除网段里，不经过分流 → {0}', form.tunEnabled ? t('Windows 路由') : t('直连'))
-  if (view.value === 'cards') {
+  if (view.value !== 'path') {
+    const app = m.source === 'rule' ? serviceOf(form.rules[m.index]?.app ?? '') : undefined
     switch (m.source) {
       case 'ads':
         return t('命中「屏蔽广告」 → 拦截')
       case 'private':
         return t('局域网 / 本机地址 → 直连')
       case 'rule':
+        if (app) return t('命中单独指定的服务「{0}」 → {1}', app.name, where)
         return t('命中第 {0} 条规则 → {1}', ownItems.value.findIndex((x) => x.i === m.index) + 1, where)
       case 'scene':
         return t('命中常用场景「{0}」 → {1}', sceneInfo(m.scene).label, where)
@@ -292,19 +325,21 @@ const verdict = computed(() => {
       </div>
     </div>
     <div class="form-row">
-      <div class="label">{{ t('规则样式') }}<span class="hint">{{ t('两种样式改的是同一份规则') }}</span></div>
+      <div class="label">{{ t('规则样式') }}<span class="hint">{{ t('三种样式改的是同一份规则') }}</span></div>
       <div class="control">
         <Segmented
           v-model="view"
-          style="width: 220px"
+          style="width: 330px"
           :options="[
-            { value: 'path', label: t('路由路径') },
+            { value: 'apps', label: t('服务目录') },
             { value: 'cards', label: t('卡片') },
+            { value: 'path', label: t('路由路径') },
           ]"
         />
+        <button class="btn ghost small" :title="t('按熟悉程度推荐样式，带动画演示')" @click="guideOpen = true">{{ t('帮我选') }}</button>
       </div>
     </div>
-    <div v-if="view === 'cards'" class="form-row">
+    <div v-if="view !== 'path'" class="form-row">
       <div class="label">{{ t('屏蔽广告') }}<span class="hint">{{ t('拦截广告域名，所有模式都生效') }}</span></div>
       <div class="control"><Switch v-model="form.blockAds" /></div>
     </div>
@@ -314,6 +349,7 @@ const verdict = computed(() => {
       <span v-if="form.routeMode === 'global'">{{ t('全局代理：除了局域网和屏蔽广告，所有流量都走当前节点，下面的规则和场景暂不生效。') }}</span>
       <span v-else-if="form.routeMode === 'direct'">{{ t('全部直连：不使用代理，下面的规则和场景暂不生效。') }}</span>
       <span v-else-if="view === 'path'">{{ t('每个连接从上往下依次判断，在哪一步命中就从哪一步出去。拖动左边的把手调整先后顺序。') }}</span>
+      <span v-else-if="view === 'apps'">{{ t('给常用服务单独选择走当前节点、直连还是某个分组；没有单独指定的服务，跟随常用场景和「其余流量」。') }}</span>
       <span v-else>{{ t('打开需要的常用场景，再添加自己的规则。规则从上往下匹配，拖动调整顺序；要调整场景和规则之间的先后，请切换到「路由路径」样式。') }}</span>
       <button v-if="!ruleMode" class="btn small" @click="form.routeMode = 'rule'">{{ t('切换到规则分流') }}</button>
     </div>
@@ -420,6 +456,9 @@ const verdict = computed(() => {
       </div>
     </template>
 
+    <!-- ============================================================= catalog -->
+    <ServiceCatalog v-else-if="view === 'apps'" :form="form" :match="match" @view="view = $event" />
+
     <!-- =============================================================== cards -->
     <template v-else>
       <div v-if="!textMode" class="block">
@@ -485,25 +524,30 @@ const verdict = computed(() => {
       </p>
     </template>
 
-    <!-- shared by both looks -->
+    <RouteStyleGuide v-model="guideOpen" :current="view" @done="guideDone" />
+
+    <!-- shared by all looks -->
+    <!-- left: the hide switch and the hints; right: 恢复默认, centred on them -->
     <div class="rules-foot">
-      <label v-if="view === 'path'" class="hide-off">
-        <Switch v-model="hideOff" />
-        <span>{{ t('隐藏未开启的场景') }}</span>
-        <span v-if="hideOff && hiddenCount" class="faint small">{{ t('已隐藏 {0} 个', hiddenCount) }}</span>
-      </label>
-      <span class="spacer" />
-      <button class="btn ghost small" :title="t('删除自己的规则，场景和顺序恢复成刚安装时的样子')" @click="resetRules">
+      <div class="foot-left">
+        <label v-if="view === 'path'" class="hide-off">
+          <Switch v-model="hideOff" />
+          <span>{{ t('隐藏未开启的步骤') }}</span>
+          <span v-if="hideOff && hiddenCount" class="faint small">{{ t('已隐藏 {0} 个', hiddenCount) }}</span>
+        </label>
+        <p v-if="!textMode && ruleMode && view === 'path' && !ownCount" class="faint small hint-line">
+          <span>{{ t('还没有自己的规则。') }}</span>
+          <span>{{ t('想让某个网站或程序单独直连、走代理或走某个分组代理，点「添加规则」。') }}</span>
+        </p>
+        <p v-if="!textMode && ruleMode && !policies.list.length" class="faint small hint-line">
+          <span>{{ t('想让不同网站走不同节点（例如 YouTube 走日本、Google 走美国）？') }}</span>
+          <span>{{ t('先在下面的「分组代理」里建好分组，再在规则里选择它。') }}</span>
+        </p>
+      </div>
+      <button class="btn ghost small reset" :title="t('删除自己的规则，场景和顺序恢复成刚安装时的样子')" @click="resetRules">
         <Icon name="refresh" :size="13" /> {{ t('恢复默认') }}
       </button>
     </div>
-
-    <p v-if="!textMode && ruleMode && view === 'path' && !ownCount" class="faint small hint-line">
-      {{ t('还没有自己的规则。想让某个网站或程序单独直连、走代理或走某个分组代理，点「添加规则」。') }}
-    </p>
-    <p v-if="!textMode && ruleMode && !policies.list.length" class="faint small hint-line">
-      {{ t('想让不同网站走不同节点（例如 YouTube 走日本、Google 走美国）？先在下面的「分组代理」里建好分组，再在规则里选择它。') }}
-    </p>
 
     <div class="form-row mirror">
       <div class="label">{{ t('规则集镜像') }}<span class="hint">{{ t('网站分类和 IP 归属地从这里下载') }}</span></div>
@@ -878,9 +922,28 @@ select.to-proxy {
   color: var(--text-2);
   cursor: pointer;
 }
+.foot-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.foot-left:empty {
+  display: none;
+}
+.reset {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+/* a question or a fact, then what to do: one line each */
 .hint-line {
-  margin: 8px 0 0;
+  margin: 0;
   line-height: 1.6;
+}
+.hint-line span {
+  display: block;
 }
 .rule-text {
   width: 100%;

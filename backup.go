@@ -57,6 +57,7 @@ var portableSettings = []string{
 // Settings that make up the routing rules (分流规则).
 var ruleSettings = []string{
 	"routeMode", "blockAds", "rules", "scenes", "ruleSetMirror",
+	"routeView", "routeHideOff", "routeViewAsked", // how the page looks
 	"directRules", "proxyRules", "blockRules", // v1.2 and Android
 }
 

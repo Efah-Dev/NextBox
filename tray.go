@@ -18,9 +18,11 @@ import (
 // trayState is the Windows notification-area icon and its right-click menu.
 type trayState struct {
 	mu     sync.Mutex
+	build  sync.Mutex // one rebuild at a time: two at once mix up the items
 	ready  bool
 	timer  *time.Timer
 	cancel context.CancelFunc
+	sig    string            // what the menu shows, see rebuildTray
 	icons  map[string][]byte // keyed by proxy mode: "", "system", "tun"
 }
 
@@ -79,18 +81,11 @@ func (a *App) refreshTray() {
 }
 
 func (a *App) rebuildTray() {
-	a.tray.mu.Lock()
-	if a.tray.cancel != nil {
-		a.tray.cancel()
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	a.tray.cancel = cancel
-	a.tray.mu.Unlock()
-
+	a.tray.build.Lock()
+	defer a.tray.build.Unlock()
 	st := a.GetState()
 	selected, hasSelected := a.store.Profile(st.SelectedID)
 
-	systray.SetIcon(a.tray.icons[st.ProxyMode])
 	tip := i18n.T("NextBox · 未连接")
 	if st.Running {
 		mode := map[string]string{"system": i18n.T("系统代理"), "tun": i18n.T("TUN 模式"), "": i18n.T("仅端口")}[st.ProxyMode]
@@ -99,40 +94,26 @@ func (a *App) rebuildTray() {
 			tip += " · " + selected.Name
 		}
 	}
-	systray.SetTooltip(tip)
 
-	systray.ResetMenu()
-	on := func(item *systray.MenuItem, fn func()) {
-		go func() {
-			for {
-				select {
-				case <-item.ClickedCh:
-					fn()
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-	}
+	var items []trayItem
+	add := func(it trayItem) { items = append(items, it) }
+	sep := func() { add(trayItem{sep: true}) }
+	header := func(text string) { add(trayItem{label: text, disabled: true}) }
 
-	title := systray.AddMenuItem("NextBox "+Version, "")
-	title.Disable()
-	on(systray.AddMenuItem(i18n.T("显示主界面"), ""), a.ShowWindow)
-	systray.AddSeparator()
-
+	header("NextBox " + Version)
+	add(trayItem{label: i18n.T("显示主界面"), fn: a.ShowWindow})
+	sep()
 	if st.Running {
-		on(systray.AddMenuItem(i18n.T("关闭代理"), ""), func() { a.Disconnect() })
+		add(trayItem{label: i18n.T("关闭代理"), fn: func() { a.Disconnect() }})
 	} else {
-		on(systray.AddMenuItem(i18n.T("启动代理"), ""), func() {
+		add(trayItem{label: i18n.T("启动代理"), fn: func() {
 			if err := a.Connect(); err != nil {
 				a.ShowWindow()
 				a.emitError(err.Error())
 			}
-		})
+		}})
 	}
-
-	tun := systray.AddMenuItemCheckbox(i18n.T("TUN 模式"), "", st.Settings.TunEnabled)
-	on(tun, func() {
+	add(trayItem{label: i18n.T("TUN 模式"), check: true, checked: st.Settings.TunEnabled, fn: func() {
 		s := a.store.Settings()
 		if !s.TunEnabled && !st.Elevated {
 			a.ShowWindow()
@@ -143,26 +124,25 @@ func (a *App) rebuildTray() {
 		if err := a.SaveSettings(s); err != nil {
 			a.emitError(err.Error())
 		}
-	})
+	}})
 
 	// Route modes and nodes are listed in the main menu rather than in
 	// submenus: the tray sits at the right edge of the screen, so Windows
 	// would open any submenu towards the left.
-	systray.AddSeparator()
+	sep()
 	header(i18n.T("路由模式"))
 	for _, m := range []struct{ value, label string }{{"rule", i18n.T("规则分流")}, {"global", i18n.T("全局代理")}, {"direct", i18n.T("全部直连")}} {
 		value := m.value
-		item := systray.AddMenuItemCheckbox(m.label, "", st.Settings.RouteMode == value)
-		on(item, func() {
+		add(trayItem{label: m.label, check: true, checked: st.Settings.RouteMode == value, fn: func() {
 			s := a.store.Settings()
 			s.RouteMode = value
 			if err := a.SaveSettings(s); err != nil {
 				a.emitError(err.Error())
 			}
-		})
+		}})
 	}
 
-	systray.AddSeparator()
+	sep()
 	profiles := a.store.Profiles(st.CurrentGroupID)
 	groupName := i18n.T("节点")
 	if g, ok := a.store.Group(st.CurrentGroupID); ok {
@@ -182,26 +162,82 @@ func (a *App) rebuildTray() {
 			label += fmt.Sprintf("    %d ms", p.Latency)
 		}
 		id := p.ID
-		on(systray.AddMenuItemCheckbox(label, "", id == st.SelectedID), func() {
+		add(trayItem{label: label, check: true, checked: id == st.SelectedID, fn: func() {
 			if err := a.SelectProfile(id); err != nil {
 				a.emitError(err.Error())
 			}
-		})
+		}})
 	}
 	if len(profiles) > trayNodeLimit {
-		on(systray.AddMenuItem(fmt.Sprintf(i18n.T("更多节点…（共 %d 个）"), len(profiles)), ""), func() {
+		add(trayItem{label: fmt.Sprintf(i18n.T("更多节点…（共 %d 个）"), len(profiles)), fn: func() {
 			a.ShowWindow()
 			wruntime.EventsEmit(a.ctx, "navigate", "nodes")
-		})
+		}})
 	}
+	sep()
+	add(trayItem{label: i18n.T("退出"), fn: a.Quit})
 
-	systray.AddSeparator()
-	on(systray.AddMenuItem(i18n.T("退出"), ""), a.Quit)
+	// nothing that is shown changed (most state updates are about something
+	// else): leave the menu alone, it may be open
+	sig := st.ProxyMode + "\x00" + tip
+	for _, it := range items {
+		sig += fmt.Sprintf("\x00%s|%t|%t|%t|%t", it.label, it.sep, it.check, it.checked, it.disabled)
+	}
+	a.tray.mu.Lock()
+	if sig == a.tray.sig {
+		a.tray.mu.Unlock()
+		return
+	}
+	a.tray.sig = sig
+	if a.tray.cancel != nil {
+		a.tray.cancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.tray.cancel = cancel
+	a.tray.mu.Unlock()
+
+	systray.SetIcon(a.tray.icons[st.ProxyMode])
+	systray.SetTooltip(tip)
+	systray.ResetMenu()
+	for _, it := range items {
+		switch {
+		case it.sep:
+			systray.AddSeparator()
+			continue
+		case it.check:
+			trayClick(ctx, systray.AddMenuItemCheckbox(it.label, "", it.checked), it.fn)
+		default:
+			m := systray.AddMenuItem(it.label, "")
+			if it.disabled {
+				m.Disable()
+			} else {
+				trayClick(ctx, m, it.fn)
+			}
+		}
+	}
 }
 
-// header adds a greyed-out label that titles the items below it.
-func header(text string) {
-	systray.AddMenuItem(text, "").Disable()
+// trayItem is one line of the tray menu.
+type trayItem struct {
+	label          string
+	sep            bool // a separator line
+	check, checked bool // a check box, and its state
+	disabled       bool // a greyed-out title
+	fn             func()
+}
+
+// trayClick runs fn whenever item is clicked, until ctx (the menu) ends.
+func trayClick(ctx context.Context, item *systray.MenuItem, fn func()) {
+	go func() {
+		for {
+			select {
+			case <-item.ClickedCh:
+				fn()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 // trayProfiles picks the nodes shown in the tray: the first trayNodeLimit,

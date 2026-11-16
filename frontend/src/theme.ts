@@ -61,6 +61,50 @@ function mix(a: Palette, b: Palette, t: number): Palette {
   return out
 }
 
+// ---- OKLab, to change how light a colour is without changing its tint
+type Lab = [number, number, number]
+const lin = (v: number) => ((v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+const gam = (v: number) => 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055)
+function toLab([r, g, b]: RGB): Lab {
+  ;[r, g, b] = [lin(r), lin(g), lin(b)]
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ]
+}
+function fromLab([L, a, b]: Lab): RGB {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
+  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+  ].map((v) => Math.max(0, Math.min(255, Math.round(gam(Math.max(0, Math.min(1, v))))))) as RGB
+}
+
+/**
+ * Moves each colour of the classic palette to the lightness of the same
+ * colour in end, a share t of the way, keeping the tint of the classic theme:
+ * the hue stays, and the colourfulness shrinks only as the colour nears white
+ * or black (as when mixing with white or black). So the slider only makes the
+ * interface lighter or darker, it does not turn it bluer or greyer.
+ */
+function shade(classic: Palette, end: Palette, t: number): Palette {
+  const out = {} as Palette
+  for (const k of Object.keys(classic) as (keyof Palette)[]) {
+    const [L0, a, b] = toLab(classic[k])
+    const L = Math.max(0, Math.min(1, L0 + (toLab(end[k])[0] - L0) * t))
+    const f = L >= L0 ? (L0 >= 1 ? 0 : (1 - L) / (1 - L0)) : L0 <= 0 ? 0 : L / L0
+    out[k] = fromLab([L, a * f, b * f])
+  }
+  return out
+}
+
 // the far ends reach 1.55 times as far as in v2.0, in the same direction,
 // so that levels converted from the old scale keep their colours
 const lightDeep = mix(lightBright, lightDim, 1.55)
@@ -75,13 +119,13 @@ export function palette(dark: boolean, level: number): Palette | null {
   if (!dark) {
     if (level === LIGHT_DEFAULT) return null
     return level < LIGHT_DEFAULT
-      ? mix(lightWhite, lightBright, level / LIGHT_DEFAULT)
-      : mix(lightBright, lightDeep, (level - LIGHT_DEFAULT) / (100 - LIGHT_DEFAULT))
+      ? shade(lightBright, lightWhite, 1 - level / LIGHT_DEFAULT)
+      : shade(lightBright, lightDeep, (level - LIGHT_DEFAULT) / (100 - LIGHT_DEFAULT))
   }
   if (level === DARK_DEFAULT) return null
   return level < DARK_DEFAULT
-    ? mix(darkLight, darkClassic, level / DARK_DEFAULT)
-    : mix(darkClassic, darkBlack, (level - DARK_DEFAULT) / (100 - DARK_DEFAULT))
+    ? shade(darkClassic, darkLight, 1 - level / DARK_DEFAULT)
+    : shade(darkClassic, darkBlack, (level - DARK_DEFAULT) / (100 - DARK_DEFAULT))
 }
 
 const VARS = ['--bg', '--card', '--panel', '--line', '--input-bg', '--input-border', '--text', '--text-2', '--text-3']

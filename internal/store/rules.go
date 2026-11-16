@@ -13,6 +13,9 @@ type Rule struct {
 	Values   []string `json:"values"`
 	Target   string   `json:"target"` // TargetProxy, TargetDirect, TargetBlock or PolicyTarget(id)
 	Disabled bool     `json:"disabled,omitempty"`
+	// App is the service of the catalog (服务目录) the rule was set from, such as
+	// "youtube"; only a label for that look, the rule matches by Kind and Values.
+	App string `json:"app,omitempty"`
 }
 
 // Steps of the route that are not rules of their own but have a place among

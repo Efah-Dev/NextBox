@@ -3,6 +3,7 @@
 import { reactive } from 'vue'
 import { t } from './i18n'
 import { api, type PolicyView, type RuleKind, type StepKind, type Target } from './api'
+import { services } from './services'
 
 export const policies = reactive({ list: [] as PolicyView[], loaded: false })
 
@@ -65,6 +66,15 @@ export const sceneInfo = (id: string) =>
 
 export const sceneIds = ['ai', 'media', 'games', 'cn']
 
+/** The scenes in the order the cards show them. */
+export const sceneCards = () => ['cn', 'ai', 'media', 'games'].map((id) => ({ id, ...sceneInfo(id) }))
+
+/** Ad blocking and the scenes: they have a place among the rules but are not rules of their own. */
+export const isStep = (r: { kind: string }) => r.kind === 'ads' || r.kind === 'scene'
+
+/** Where a connection that no rule matched goes. */
+export const finalLabel = (routeMode: string) => (routeMode === 'direct' ? t('直连') : t('当前节点'))
+
 /** The routing rules of a new installation (store.DefaultScenes and
  * store.placeSteps): no rules of your own, ad blocking first, the scenes
  * last with only the mainland China bypass on. */
@@ -80,7 +90,7 @@ export function defaultRoute(): { rules: ParsedRule[]; scenes: { id: string; ena
   }
 }
 
-export const geosites = [
+const baseGeosites = [
   { value: 'google', label: 'Google' },
   { value: 'youtube', label: 'YouTube' },
   { value: 'openai', label: 'OpenAI / ChatGPT' },
@@ -106,6 +116,18 @@ export const geosites = [
   { value: 'category-ads-all', label: t('广告域名') },
 ]
 
+/** The site categories offered in the rules: the common ones first, then
+ * the rest of the service catalog. */
+export const geosites = (() => {
+  const out = [...baseGeosites]
+  for (const sv of services) {
+    for (const value of sv.sets) {
+      if (!out.some((o) => o.value === value)) out.push({ value, label: sv.name })
+    }
+  }
+  return out
+})()
+
 export const geoips = [
   { value: 'cn', label: t('中国大陆') },
   { value: 'hk', label: t('中国香港') },
@@ -115,9 +137,6 @@ export const geoips = [
   { value: 'kr', label: t('韩国') },
   { value: 'us', label: t('美国') },
 ]
-
-export const valueLabel = (kind: RuleKind, v: string) =>
-  (kind === 'geosite' ? geosites : kind === 'geoip' ? geoips : []).find((x) => x.value === v)?.label ?? v
 
 // ---- the text editor: one "kind:value, target" per line ----
 
