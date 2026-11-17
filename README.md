@@ -5,7 +5,7 @@
 <h1 align="center">NextBox</h1>
 
 <p align="center">
-  基于 sing-box 内核的简洁、现代的 Windows 代理客户端
+  基于 sing-box 内核的轻量、简洁、现代的 Windows 代理客户端
 </p>
 
 <p align="center">
@@ -48,18 +48,23 @@ NextBox 是 [sing-box](https://github.com/SagerNet/sing-box) 代理内核的桌�
   - **路由路径**（适合老鸟）：把每个连接的判断顺序画成一条线，屏蔽广告、常用场景和自己的规则都可以任意拖动调整先后；可以隐藏未开启的步骤
 
   规则可以按网站分类（可多选）、域名、IP 归属地（可多选）、IP 段、程序匹配，也可用文本模式编辑；输入网址或 IP 测试会显示命中哪一条。三种样式都有「恢复默认」
+  - **规则集**：把域名、IP、程序、网站分类、IP 归属地，以及网上的 sing-box 规则集（.srs / .json 网址）放进一个有名称的规则集，统一指定去向，一次加好一批规则；支持批量粘贴
+  - 规则可以起名称，连接页会显示命中的规则名称；程序规则可以直接从正在运行的程序里勾选
+  - 系统代理模式下也会按 IP 归属地判断：域名先用直连 DNS 解析，国内网站即使不在域名列表里也能正确直连
+  - 服务目录把 Steam 分成「商店 / 社区」和「下载」：下载走国内 CDN 直连，商店和社区可以单独走代理
 - 🧩 **分组代理**：按地区、名称关键词或手动挑选把节点分组，自动选最快或手动指定，再让不同网站走不同分组（例如 YouTube 走日本、Google 走美国）；按条件建的分组在订阅更新后自动包含新节点
 - 🚫 **屏蔽广告**：在所有路由模式下都生效
 - 📍 **落地信息**：连接后在启动页显示当前节点的国旗、落地 IP（默认打码）、所属网络（ASN，例如 `AS13335 Cloudflare`）和状态灯，可一键复制落地 IP，定期自动复查
 - 🖥️ **系统代理**：连接时自动设置，包括宽带拨号（PPPoE）和系统 VPN 连接；断开、退出、内核崩溃时自动还原；Windows 注销 / 关机时优先清除，即使程序被强制结束，下次登录时也会自动清除残留的代理
-- 🚀 **开机自启**：设置页实时显示是否真的加入了 Windows 启动项，被禁用、程序被移动等情况会给出原因和一键修复；开启 TUN 模式时改用计划任务以管理员身份启动；可选自启后自动连接上次的节点，连接失败时直接弹出主窗口；显示上次开机的结果，能发现被安全软件拦截的情况
-- 🛡️ **TUN 模式**：接管全部流量（需要管理员权限，可一键「以管理员身份重启」）；「TUN 排除网段」让 Tailscale、ZeroTier 等组网软件的网段不进 TUN，可从网卡一键添加；可选 FakeIP，带可编辑的排除列表
+- 🚀 **开机自启**：设置页实时显示是否真的加入了 Windows 启动项，被禁用、程序被移动等情况会给出原因和一键修复；安装了 NextBox 服务时由服务在你登录 Windows 时启动 NextBox，不依赖注册表启动项，任务管理器也关不掉；没有安装服务、开启 TUN 模式时改用计划任务以管理员身份启动；可选自启后自动连接上次的节点，连接失败时直接弹出主窗口；显示上次开机的结果，能发现被安全软件拦截的情况
+- 🛡️ **TUN 模式**：接管全部流量。可选的「服务模式」只需在安装时授权一次管理员，之后开启 TUN 不再需要以管理员身份运行 NextBox；不想安装服务也可以「以管理员身份重启」；「TUN 排除网段」让 Tailscale、ZeroTier 等组网软件的网段不进 TUN，可从网卡一键添加；可选 FakeIP，带可编辑的排除列表
 - 💾 **备份与加密**：导出 / 导入配置（节点与订阅、分流规则、其他设置可分别选择），用密码以 AES-256 加密，格式与 Android 版相同，Android 专用的规则和设置会原样保留；本地的节点和订阅也可以加密保存（跟随 Windows 账户，或使用启动密码）；内核配置不再写入磁盘
 - 🌍 **DNS**：远程 DNS 走代理，直连 DNS 走本地；支持 UDP / TCP / DoT / DoQ / DoH / DoH3
 - 📌 **托盘**：关闭窗口后常驻托盘；右键菜单可启动 / 关闭代理、切换节点、路由模式和 TUN。绿点 = 系统代理，红点 = TUN
-- 📜 **连接与日志**：实时连接列表（目标、进程、规则、速度）；日志筛选；可选记录日志文件（单文件大小上限、保留天数）
+- 📜 **连接与日志**：实时连接列表（目标、进程、命中的规则名称、出口节点、速度）；日志筛选；可选记录日志文件（单文件大小上限、保留天数）
 - 🔄 **更新**：在「设置 → 关于」里检查 NextBox 和 sing-box 内核的新版本，与 GitHub Releases 比对；也可以打开「自动检查更新」（默认关闭）。只提醒，不会自动下载
 - 🎨 **外观**：浅色 / 深色 / 跟随系统；浅色亮度、深色深度可无极调节（深色可调到纯黑）；主题色可选预设或用取色面板自定义（默认淡粉色）；思源黑体 Noto Sans SC
+- 🔍 **设置搜索**：设置页左上角可以按名称和说明搜索选项（Ctrl+F），点结果直接跳过去
 - 🌐 **语言**：简体中文、繁體中文、English
 
 ## 📦 下载
@@ -77,7 +82,8 @@ NextBox 是 [sing-box](https://github.com/SagerNet/sing-box) 代理内核的桌�
 > 链式代理、拖动排序、国旗与按国家搜索从 v1.2.0 开始提供；
 > 分组代理、新的分流规则、备份与加密、FakeIP、开机自启检测从 v2.0.0 开始提供；
 > NaiveProxy、路由路径（可调整顺序）、TUN 排除网段从 v2.1.0 开始提供；
-> 服务目录、多选网站分类、删除重复节点、落地 IP 的 ASN 从 v2.2.0 开始提供。
+> 服务目录、多选网站分类、删除重复节点、落地 IP 的 ASN 从 v2.2.0 开始提供；
+> 规则集、服务模式（TUN 免管理员、更稳的开机自启）、连接页显示命中的规则、选择进程、设置搜索从 v2.3.0 开始提供。
 
 ## 🚀 快速上手
 
@@ -88,19 +94,20 @@ NextBox 是 [sing-box](https://github.com/SagerNet/sing-box) 代理内核的桌�
 
 ## 🧩 sing-box 内核
 
-发布包里的 `core/sing-box.exe` 由官方源码**未经修改**编译而成，旁边的 `libcronet.dll` 是 NaiveProxy 需要的网络库（来自 sing-box 源码锁定版本的 [cronet-go](https://github.com/SagerNet/cronet-go)，与官方发布包相同）：
+发布包里的 `core/sing-box.exe` 由官方源码**未经修改**编译而成，只编入 NextBox 用得到的功能（体积约为官方版的一半），旁边的 `libcronet.dll` 是 NaiveProxy 需要的网络库（来自 sing-box 源码锁定版本的 [cronet-go](https://github.com/SagerNet/cronet-go)，与官方发布包相同）：
 
 | | |
 |---|---|
 | 版本 | **sing-box 1.14.4** |
 | 分支 | **`stable` 稳定分支**（官方稳定版，标签 [`v1.14.4`](https://github.com/SagerNet/sing-box/tree/v1.14.4)） |
 | 编译环境 | Go 1.27.3，`windows/amd64`，CGO 关闭 |
-| 编译标签 | `with_gvisor, with_quic, with_dhcp, with_wireguard, with_utls, with_acme, with_clash_api, with_tailscale, with_ccm, with_ocm, with_cloudflared, with_naive_outbound, with_purego, with_usbip, with_openvpn, with_openconnect, badlinkname, tfogo_checklinkname0` |
+| 编译标签 | `with_gvisor, with_quic, with_dhcp, with_wireguard, with_utls, with_clash_api, with_naive_outbound, with_purego, badlinkname, tfogo_checklinkname0` |
 
-以上与官方 Windows 发布版的编译标签完全一致。
+和官方 Windows 发布版相比，去掉了 NextBox 不会用到的 Tailscale、cloudflared、OpenVPN / OpenConnect、USB/IP、ACME 和 CCM / OCM 服务；所有支持的协议（包括 NaiveProxy、Hysteria2、TUIC、WireGuard）都在。
 内核版本和编译标签也可以在「设置 → 关于」里查看。
 
 NextBox 生成的是 sing-box **1.12 及以上**格式的配置，所以可以把 `core/` 里的 `sing-box.exe` 换成任何更新的官方版本（使用 NaiveProxy 时连同 `libcronet.dll` 一起替换）。
+装了服务模式时，换完内核后到「设置 → TUN 模式」点「更新服务」，服务里的那份内核才会跟着更新。
 
 ## 💾 数据保存位置
 
@@ -115,13 +122,24 @@ NextBox 生成的是 sing-box **1.12 及以上**格式的配置，所以可以�
 | `config/cache/` | 测速时的临时文件，测完自动清空 |
 | `config/autostart.json` | 开机自启的结果记录 |
 | `config/android.json` | 从 Android 备份导入的手机专用设置，再次导出时带上 |
+| `C:\Program Files\NextBox Service\` | 只在安装了服务模式时存在：服务程序、一份内核、`service.json`（允许使用的账户和开机启动的程序）、`service.log`。在「设置 → TUN 模式」卸载服务时一起删除 |
 
 开启「加密保存节点和订阅」并选择「跟随 Windows 账户」后，`profiles.json` 只能在这台电脑的当前 Windows 账户下打开。
 迁移到另一台电脑前，请先在「设置 → 数据与备份」里导出备份。
 
 ## ❓ 常见问题
 
-**TUN 模式打不开？** 需要管理员权限。在「启动」页或「设置 → TUN 模式」里点「以管理员身份重启」。
+**TUN 模式打不开？** 需要管理员权限，有两种方式，在「设置 → TUN 模式」里任选：
+安装「服务模式」（只在安装时授权一次，之后 NextBox 以普通身份运行就能开 TUN，开机自启也更稳），
+或者每次「以管理员身份重启」。服务装在 `C:\Program Files\NextBox Service`，不想用了随时可以在同一处卸载。
+
+**更新 NextBox 后服务要更新吗？** 要。版本不一致时「设置 → TUN 模式」会显示「更新服务」，点一下（授权一次）即可。
+
+**国内网站被分流到了代理？** 规则分流会先看域名列表（geosite-cn），不在列表里的再用直连 DNS 解析出 IP，按 IP 归属地判断。
+如果网站在国内的 IP 也查不到（例如用了海外 CDN），可以加一条「域名 → 直连」规则，或放进自己的规则集。
+
+**规则集是什么？** 「添加规则集」可以把多种规则（域名、IP、程序、网站分类、网上的 sing-box 规则集）放在一起、起一个名字、统一指定去向，
+例如「公司内网 → 直连」。连接页会显示连接命中的是哪个规则集。规则集网址需要是 sing-box 的 `.srs` 或 `.json` 规则集，Clash 规则不能直接使用。
 
 **切换节点会断网吗？** 连接时会把当前节点所在分组的节点（最多 200 个）一起载入内核，在它们之间切换不需要重启：
 新连接走新节点，已建立的连接继续走原来的节点直到结束。切换到其他分组的节点、编辑过的节点，或者修改路由模式等设置时，
@@ -166,7 +184,7 @@ Android 版导出的备份也可以在这里导入。来自其他系统的备份
 「启动密码」每次打开都要输入，开机自启时会停在解锁界面，忘记密码无法恢复。
 
 **开机自启没有生效？** 「设置 → 常规 → 开机自启」右边会显示检测结果。被任务管理器禁用、程序被移动、
-开启 TUN 模式但没有管理员权限等情况都会写明原因，点修复即可。同一行中间会显示上次开机的结果：
+开启 TUN 模式但没有管理员权限等情况都会写明原因，点修复即可。安装了服务模式后，开机自启改由服务负责，不再受启动项管理的影响。同一行中间会显示上次开机的结果：
 「没有启动」通常是被 360、火绒等安全软件的启动项管理拦截了，需要在那里允许 NextBox。
 自启后自动连接失败时会直接弹出主窗口并写明原因。
 
@@ -209,6 +227,12 @@ wails build
 powershell -ExecutionPolicy Bypass -File scripts/build-core.ps1
 ```
 
+编译服务模式用的 `build/bin/core/NextBoxService.exe`（版本号取自 `main.go`）：
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/build-service.ps1
+```
+
 运行测试（需要先编译前端；配置校验、测速和节点切换的测试会用到上面编译的内核，没有内核时自动跳过）：
 
 ```bash
@@ -228,7 +252,9 @@ exit.go、startup.go           落地信息（IP、ASN）检测；开机自启�
 autostart_log.go              每次开机自启的结果记录
 tunexclude.go                 TUN 排除网段的检查与网卡列表
 tray.go                       系统托盘
+servicemode.go                服务模式的安装、卸载和状态
 cmd/genicon/                  生成应用图标
+cmd/nextbox-service/          NextBoxService.exe（服务模式）
 internal/
   store/     数据模型与 JSON 持久化
   link/      分享链接解析 / 导出，订阅格式解析
@@ -241,13 +267,15 @@ internal/
   icon/      粉色猫爪图标绘制（应用图标与托盘）
   i18n/      后端翻译（与 frontend/src/i18n 共用词典）
   logfile/   日志文件（自动分割与过期清理）
-  sys/       系统代理、管理员权限、开机自启（Windows）
+  sys/       系统代理、管理员权限、开机自启、进程列表（Windows）
+  service/   NextBox 服务：命名管道协议、以系统权限运行内核、登录时启动 NextBox
 frontend/src/
   views/        启动、节点、连接、日志、设置页面（settings/ 下是各设置板块）
   components/   标题栏、卡片、对话框、多选框、服务图标等
   services.ts   服务目录的服务与图标（Simple Icons）
   i18n/         en.json（中文 → 英文）、zh-TW.json（简体 → 繁体）
 scripts/build-core.ps1   从源码编译 sing-box
+scripts/build-service.ps1 编译 NextBoxService.exe
 docs/render/             README 主页渲染图的源文件
 ```
 
@@ -280,7 +308,7 @@ node docs/render/render.mjs
 - [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray)：NextBox 的原项目
 - [SagerNet/sing-box](https://github.com/SagerNet/sing-box)：代理内核
 - [SagerNet/sing-geosite](https://github.com/SagerNet/sing-geosite)、[sing-geoip](https://github.com/SagerNet/sing-geoip)：规则集
-- [Wails](https://wails.io)、[Vue](https://vuejs.org)、[fyne systray](https://github.com/fyne-io/systray)、[思源黑体 Noto Sans SC](https://github.com/notofonts/noto-cjk)
+- [Wails](https://wails.io)、[Vue](https://vuejs.org)、[fyne systray](https://github.com/fyne-io/systray)、[go-winio](https://github.com/microsoft/go-winio)、[思源黑体 Noto Sans SC](https://github.com/notofonts/noto-cjk)
 - [Simple Icons](https://github.com/simple-icons/simple-icons)：服务目录的图标
 - 由 Claude（Anthropic）协助开发
 

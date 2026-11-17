@@ -10,12 +10,14 @@ import DisplayLevels from './settings/DisplayLevels.vue'
 import AutoStartRow from './settings/AutoStartRow.vue'
 import RouteSection from './settings/RouteSection.vue'
 import TunExcludeRow from './settings/TunExcludeRow.vue'
+import TunServiceRow from './settings/TunServiceRow.vue'
 import PolicySection from './settings/PolicySection.vue'
 import BackupSection from './settings/BackupSection.vue'
 import AboutSection from './settings/AboutSection.vue'
 import { api, type Settings } from '../api'
 import { state } from '../state'
 import { confirmDialog, formatBytes, run, toast } from '../util'
+import { isStep, ruleFilled } from '../policies'
 
 // Sorted by how often people change them: everyday things first, rarely
 // touched ones last.
@@ -61,6 +63,8 @@ const testUrls = [
 // saved settings, or a change would look saved before it is
 const clone = (s: Settings): Settings => JSON.parse(JSON.stringify(s))
 const form = reactive<Settings>(clone(state.app!.settings))
+// left-overs of earlier visits (see the clean-up when the page is left)
+if (form.rules.some((r) => !isStep(r) && !ruleFilled(r))) form.rules = form.rules.filter((r) => isStep(r) || ruleFilled(r))
 let timer = 0
 let pending = false
 
@@ -139,6 +143,66 @@ function jump(id: string) {
   document.getElementById('sec-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+// ---- search: the options on the page as they are shown (in the current
+// language), found by their names and the hints under them
+interface Hit {
+  key: number
+  section: string
+  label: string
+  hint: string
+  el: HTMLElement
+}
+const query = ref('')
+const hits = ref<Hit[]>([])
+const searchBox = ref<HTMLInputElement>()
+function search() {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return (hits.value = [])
+  const out: Hit[] = []
+  for (const s of sections) {
+    const card = document.getElementById('sec-' + s.id)
+    if (!card) continue
+    const before = out.length
+    card.querySelectorAll<HTMLElement>('.form-row > .label, .block-title, .svc-head b').forEach((labelEl) => {
+      const hintText = labelEl.querySelector('.hint')?.textContent?.trim() ?? ''
+      const label = (labelEl.textContent ?? '').replace(hintText, '').trim()
+      if (!label || !(label + ' ' + hintText).toLowerCase().includes(q)) return
+      const row = (labelEl.closest('.form-row') as HTMLElement) ?? labelEl
+      if (!out.some((h) => h.el === row)) out.push({ key: out.length, section: s.label, label, hint: hintText, el: row })
+    })
+    if (out.length === before && s.label.toLowerCase().includes(q)) out.push({ key: out.length, section: s.label, label: s.label, hint: '', el: card })
+  }
+  hits.value = out.slice(0, 40)
+}
+watch(query, search)
+function goTo(h: Hit) {
+  h.el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  h.el.classList.remove('search-flash')
+  void h.el.offsetWidth // restart the animation
+  h.el.classList.add('search-flash')
+  window.setTimeout(() => h.el.classList.remove('search-flash'), 1800)
+}
+function onKey(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    e.preventDefault()
+    searchBox.value?.focus()
+    searchBox.value?.select()
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+
+// A rule added but never filled in (or a rule set left empty) matches
+// nothing: it goes when the page is left, instead of waiting there forever.
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  const filled = form.rules.filter((r) => isStep(r) || ruleFilled(r))
+  if (filled.length !== form.rules.length) {
+    form.rules = filled
+    clearTimeout(timer)
+    save()
+  }
+})
+
 // Opened from another page for a specific section (e.g. Nodes → 测速设置).
 onMounted(() => {
   const id = state.settingsSection
@@ -172,7 +236,19 @@ function onScroll() {
     <aside class="side">
       <div class="nav scroll">
         <div class="side-title">{{ t('设置') }}</div>
-        <template v-for="g in groups" :key="g.label">
+        <div class="side-search">
+          <Icon name="search" :size="13" />
+          <input ref="searchBox" v-model="query" class="input" :placeholder="t('搜索设置')" spellcheck="false" @keydown.esc="query = ''" @keydown.enter="hits[0] && goTo(hits[0])" />
+          <button v-if="query" class="clear" :title="t('清除')" @click="query = ''"><Icon name="close" :size="11" /></button>
+        </div>
+        <div v-if="query.trim()" class="results">
+          <div v-for="h in hits" :key="h.key" class="result" :title="h.hint" @click="goTo(h)">
+            <span class="r-label ellipsis">{{ h.label }}</span>
+            <span class="r-section faint ellipsis">{{ h.section }}</span>
+          </div>
+          <div v-if="!hits.length" class="faint none">{{ t('没有找到相关设置') }}</div>
+        </div>
+        <template v-for="g in groups" v-else :key="g.label">
           <div v-if="g.label" class="nav-group">{{ g.label }}</div>
           <div v-else class="nav-gap" />
           <div class="nav-list">
@@ -257,15 +333,16 @@ function onScroll() {
       </Card>
 
       <Card id="sec-tun" :title="t('TUN 模式')" :index="order('tun')">
-        <div v-if="!state.app?.elevated" class="warn">
+        <div v-if="!state.app?.elevated && !state.app?.serviceReady" class="warn">
           <Icon name="warn" :size="16" />
-          <span>{{ t('TUN 模式需要管理员权限。') }}</span>
+          <span>{{ t('TUN 模式需要管理员权限，安装服务模式或以管理员运行。') }}</span>
           <button class="btn small" @click="run(() => api.restartAsAdmin())">{{ t('以管理员身份重启') }}</button>
         </div>
         <div class="form-row">
           <div class="label">{{ t('启用 TUN') }}<span class="hint">{{ t('接管所有程序的流量') }}</span></div>
-          <div class="control"><Switch v-model="form.tunEnabled" :disabled="!state.app?.elevated" /></div>
+          <div class="control"><Switch v-model="form.tunEnabled" :disabled="!state.app?.elevated && !state.app?.serviceReady && !form.tunEnabled" /></div>
         </div>
+        <TunServiceRow />
         <div class="form-row">
           <div class="label">{{ t('网络栈') }}</div>
           <div class="control">
@@ -462,6 +539,65 @@ function onScroll() {
 }
 .nav .nav-item {
   height: 34px;
+}
+.side-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 0 6px;
+}
+.side-search > :deep(svg) {
+  position: absolute;
+  left: 9px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+.side-search .input {
+  width: 100%;
+  height: 30px;
+  font-size: 12.5px;
+  padding-left: 28px;
+  padding-right: 24px;
+}
+.side-search .clear {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--hover);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.result {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  min-width: 0;
+}
+.result:hover {
+  background: var(--hover);
+}
+.r-label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.r-section {
+  font-size: 11px;
+}
+.results .none {
+  padding: 10px 8px;
+  font-size: 12px;
 }
 .saved {
   display: flex;

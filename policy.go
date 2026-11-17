@@ -19,6 +19,8 @@ import (
 	"nextbox/internal/i18n"
 	"nextbox/internal/store"
 	"nextbox/internal/sys"
+
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // nodeCountryCode is where a node is, as the UI shows it: the detected
@@ -241,6 +243,9 @@ type RouteMatch struct {
 	// Note explains a limit of the test, e.g. that IP rules cannot be checked
 	// against a domain name.
 	Note string `json:"note,omitempty"`
+	// Resolved is the address the domain name was resolved to before the
+	// steps that match IP addresses (as the core does), "" when it was not.
+	Resolved string `json:"resolved,omitempty"`
 }
 
 var hostOnly = regexp.MustCompile(`^[a-z0-9.\-_:\[\]]+$`)
@@ -279,68 +284,116 @@ func (a *App) TestRoute(input string) (RouteMatch, error) {
 			}
 		}
 	}
-	skippedIP := false
+	// Like the core, a domain name is resolved with the direct DNS before
+	// the first step that matches IP addresses, and from then on the steps
+	// are checked against both.
+	isDomain := ip == nil
+	var addrs []net.IP
+	resolved := !isDomain
+	if !isDomain {
+		addrs = []net.IP{ip}
+	}
 	for _, e := range config.Entries(s) {
-		hit, skipped := a.entryMatches(e, host, ip)
-		skippedIP = skippedIP || skipped
-		if hit {
+		if !resolved && e.HasIP() {
+			resolved = true
+			addrs = a.resolveDirect(s.DirectDNS, host)
+			if len(addrs) > 0 {
+				res.Resolved = addrs[0].String()
+			} else {
+				res.Note = i18n.T("直连 DNS 没有解析出这个域名的 IP，按 IP 判断的规则（IP 段、IP 归属地）已跳过")
+			}
+		}
+		if a.entryMatches(e, host, isDomain, addrs) {
 			res.Source, res.Index, res.Scene, res.Target = e.Source, e.Index, e.Scene, e.Target
 			return res, nil
 		}
 	}
 	res.Source, res.Target, res.Index = "final", "final", -1
-	if skippedIP {
-		res.Note = i18n.T("按 IP 判断的规则（IP 段、IP 归属地）只对 IP 地址生效，测试域名时已跳过")
-	}
 	return res, nil
 }
 
-// entryMatches reports whether a routing step matches; skipped is set when
-// it has IP rules that cannot be checked against a domain name.
-func (a *App) entryMatches(e config.Entry, host string, ip net.IP) (hit, skipped bool) {
-	if ip == nil {
+// resolveDirect looks a name up the way the core's direct DNS would: with
+// the server given there when it is plain DNS (an address, udp:// or
+// tcp://), with the system's resolver otherwise. It gives up after a few
+// seconds.
+func (a *App) resolveDirect(directDNS, host string) []net.IP {
+	r := net.DefaultResolver
+	addr := strings.TrimSpace(directDNS)
+	network := "udp"
+	switch {
+	case strings.HasPrefix(addr, "udp://"):
+		addr = strings.TrimPrefix(addr, "udp://")
+	case strings.HasPrefix(addr, "tcp://"):
+		addr, network = strings.TrimPrefix(addr, "tcp://"), "tcp"
+	case strings.Contains(addr, "://"), addr == "", strings.EqualFold(addr, "local"), strings.EqualFold(addr, "dhcp"):
+		addr = ""
+	}
+	if addr != "" {
+		if _, _, err := net.SplitHostPort(addr); err != nil {
+			addr = net.JoinHostPort(strings.Trim(addr, "[]"), "53")
+		}
+		r = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		}}
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 5*time.Second)
+	defer cancel()
+	ips, err := r.LookupIP(ctx, "ip4", host)
+	if err != nil {
+		return nil
+	}
+	return ips
+}
+
+// entryMatches reports whether a routing step matches a domain name (when
+// isDomain) and its addresses, or an IP address (addrs alone).
+func (a *App) entryMatches(e config.Entry, host string, isDomain bool, addrs []net.IP) bool {
+	if isDomain {
 		domain, suffix, keyword, regex := e.Domains()
 		for _, d := range domain {
 			if host == d {
-				return true, false
+				return true
 			}
 		}
 		for _, d := range suffix {
 			if host == d || strings.HasSuffix(host, "."+d) {
-				return true, false
+				return true
 			}
 		}
 		for _, k := range keyword {
 			if strings.Contains(host, k) {
-				return true, false
+				return true
 			}
 		}
 		for _, r := range regex {
 			if re, err := regexp.Compile(r); err == nil && re.MatchString(host) {
-				return true, false
+				return true
 			}
 		}
-	} else {
+	}
+	for _, ip := range addrs {
 		for _, c := range e.CIDRs() {
 			if _, n, err := net.ParseCIDR(c); err == nil && n.Contains(ip) {
-				return true, false
+				return true
 			}
 		}
 	}
 	for _, set := range e.RuleSetTags() {
-		isIP := strings.HasPrefix(set, "geoip-")
-		if isIP != (ip != nil) {
-			skipped = skipped || isIP
+		// a remote rule-set may hold domains and IP ranges alike
+		if (isDomain && !strings.HasPrefix(set, "geoip-")) && a.ruleSetMatches(set, host) {
+			return true
+		}
+		if strings.HasPrefix(set, "geosite-") {
 			continue
 		}
-		if a.ruleSetMatches(set, host) {
-			return true, false
+		for _, ip := range addrs {
+			if a.ruleSetMatches(set, ip.String()) {
+				return true
+			}
 		}
 	}
-	if ip == nil && len(e.CIDRs()) > 0 {
-		skipped = true
-	}
-	return false, skipped
+	return false
 }
 
 func (a *App) ruleSetMatches(set, host string) bool {
@@ -354,4 +407,28 @@ func (a *App) ruleSetMatches(set, host string) bool {
 	sys.PrepareCmd(cmd)
 	out, err := cmd.CombinedOutput() // the result is printed to stderr
 	return err == nil && strings.Contains(string(out), "match rules")
+}
+
+// ---------------------------------------------------------------- picking programs
+
+// RunningPrograms lists the programs running now, for the program rules.
+func (a *App) RunningPrograms() ([]sys.RunningProgram, error) {
+	list, err := sys.RunningPrograms()
+	if list == nil {
+		list = []sys.RunningProgram{}
+	}
+	return list, err
+}
+
+// PickProgram asks for a program file and returns its file name (what
+// process rules match), or "" when the dialog was cancelled.
+func (a *App) PickProgram() (string, error) {
+	path, err := wruntime.OpenFileDialog(a.ctx, wruntime.OpenDialogOptions{
+		Title:   i18n.T("选择程序"),
+		Filters: []wruntime.FileFilter{{DisplayName: i18n.T("程序") + " (*.exe)", Pattern: "*.exe"}},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	return filepath.Base(path), nil
 }

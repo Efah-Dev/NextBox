@@ -206,7 +206,7 @@ func DefaultSettings() Settings {
 		TestURL:          "https://www.google.com/generate_204",
 		TestTimeout:      5000,
 		TestConcurrency:  16,
-		SubUserAgent:     "NextBox/2.2.0 (sing-box; ClashMeta compatible)",
+		SubUserAgent:     "NextBox/2.3.0 (sing-box; ClashMeta compatible)",
 		SubUpdateHours:   12,
 		CountrySource:    CountryExit,
 		LogLevel:         "info",
@@ -248,7 +248,7 @@ func (s *Settings) fillDefaults() {
 	s.migrateLevels()
 	s.migrateRules()
 	s.Scenes = mergeScenes(s.Scenes)
-	s.Rules = placeSteps(cleanRules(s.Rules), s.Scenes)
+	s.Rules = placeSteps(cleanRules(splitSteam(s.Rules)), s.Scenes)
 	if s.RuleSetMirror == "" {
 		s.RuleSetMirror = d.RuleSetMirror
 	}

@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	fyne.io/systray v1.12.2
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/wailsapp/wails/v2 v2.17.0
 	golang.org/x/sys v0.46.0

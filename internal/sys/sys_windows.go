@@ -3,8 +3,10 @@
 package sys
 
 import (
+	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -365,3 +367,66 @@ func AttachCmd(cmd *exec.Cmd) {
 }
 
 func CoreBinaryName() string { return "sing-box.exe" }
+
+// RunElevated starts this program again as administrator (a UAC prompt)
+// with args, waits for it and returns its exit code. ErrCancelled means the
+// user said no.
+func RunElevated(args string) (uint32, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return 0, err
+	}
+	verb, _ := syscall.UTF16PtrFromString("runas")
+	file, _ := syscall.UTF16PtrFromString(exe)
+	params, _ := syscall.UTF16PtrFromString(args)
+	dir, _ := syscall.UTF16PtrFromString(filepath.Dir(exe))
+	info := shellExecuteInfo{
+		mask:       0x00000040 | 0x00000400, // SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI
+		verb:       verb,
+		file:       file,
+		parameters: params,
+		directory:  dir,
+		show:       windows.SW_HIDE,
+	}
+	info.size = uint32(unsafe.Sizeof(info))
+	if r, _, err := procShellExecuteEx.Call(uintptr(unsafe.Pointer(&info))); r == 0 {
+		if errors.Is(err, windows.ERROR_CANCELLED) {
+			return 0, ErrCancelled
+		}
+		return 0, err
+	}
+	if info.process == 0 {
+		return 0, errors.New("no process")
+	}
+	defer windows.CloseHandle(info.process)
+	windows.WaitForSingleObject(info.process, windows.INFINITE)
+	var code uint32
+	if err := windows.GetExitCodeProcess(info.process, &code); err != nil {
+		return 0, err
+	}
+	return code, nil
+}
+
+// ErrCancelled is returned by RunElevated when the UAC prompt was declined.
+var ErrCancelled = errors.New("cancelled")
+
+var procShellExecuteEx = windows.NewLazySystemDLL("shell32.dll").NewProc("ShellExecuteExW")
+
+// SHELLEXECUTEINFOW
+type shellExecuteInfo struct {
+	size          uint32
+	mask          uint32
+	hwnd          windows.Handle
+	verb          *uint16
+	file          *uint16
+	parameters    *uint16
+	directory     *uint16
+	show          int32
+	instApp       windows.Handle
+	idList        uintptr
+	class         *uint16
+	keyClass      windows.Handle
+	hotKey        uint32
+	iconOrMonitor windows.Handle
+	process       windows.Handle
+}

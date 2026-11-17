@@ -27,7 +27,7 @@ func relay(t *testing.T, bin string) (int, *API) {
 		"experimental": map[string]any{
 			"clash_api": map[string]any{"external_controller": api.Addr, "secret": api.Secret},
 		},
-	}, api, nil)
+	}, api, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

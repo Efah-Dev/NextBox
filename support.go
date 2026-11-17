@@ -9,13 +9,16 @@ import (
 	"net/url"
 	"nextbox/internal/i18n"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"nextbox/internal/config"
 	"nextbox/internal/ruleset"
 	"nextbox/internal/store"
+	"nextbox/internal/sys"
 )
 
 // LogBatch is a run of consecutive log lines. Next is the number of lines
@@ -114,9 +117,24 @@ func (a *App) fetchRuleSetsLocked(names []string, proxy string) error {
 		}
 	}
 	client := &http.Client{Transport: transport, Timeout: 20 * time.Second}
+	urls := config.URLRuleSets(a.store.Settings())
 	var errs []error
 	for _, name := range names {
 		dest := filepath.Join(dir, name+".srs")
+		if config.IsURLRuleSet(name) {
+			u, ok := urls[name]
+			if !ok {
+				continue
+			}
+			if err := a.fetchURLRuleSet(client, u, dest); err != nil {
+				err = fmt.Errorf(i18n.T("下载规则集 %s 失败: %w"), u, err)
+				a.log(err.Error())
+				errs = append(errs, err)
+				continue
+			}
+			a.log(i18n.T("规则集已下载: ") + u)
+			continue
+		}
 		if mirror == store.LocalRuleSetMirror && ruleset.Has(name) {
 			if err := ruleset.Install(name, dest); err != nil {
 				a.log(i18n.T("规则集获取失败: ") + err.Error())
@@ -144,6 +162,74 @@ func (a *App) fetchRuleSetsLocked(names []string, proxy string) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// fetchURLRuleSet downloads a sing-box rule-set that a rule set of the user
+// names by its address. A binary rule-set (.srs) is kept as it is; a source
+// rule-set (.json) is compiled into one with the core, which also checks it:
+// either way the core only ever loads binary files. Anything else (a Clash
+// rule provider, a web page) is refused.
+func (a *App) fetchURLRuleSet(client *http.Client, u, dest string) error {
+	tmp := dest + ".src"
+	defer os.Remove(tmp)
+	if err := downloadFile(a.ctx, client, u, tmp); err != nil {
+		return err
+	}
+	head := make([]byte, 3)
+	if f, err := os.Open(tmp); err == nil {
+		io.ReadFull(f, head)
+		f.Close()
+	}
+	if string(head) == "SRS" { // the magic of binary rule-sets
+		return os.Rename(tmp, dest)
+	}
+	if err := compileRuleSet(a.ctx, a.corePath(), tmp, dest); err != nil {
+		return errors.New(i18n.T("不是 sing-box 规则集（.srs 或 .json）: ") + err.Error())
+	}
+	return nil
+}
+
+// compileRuleSet turns a source rule-set (JSON) into a binary one.
+func compileRuleSet(ctx context.Context, core, src, dest string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out := dest + ".compiled"
+	cmd := exec.CommandContext(ctx, core, "rule-set", "compile", "--output", out, src)
+	sys.PrepareCmd(cmd)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		os.Remove(out)
+		msg := strings.TrimSpace(string(b))
+		if i := strings.LastIndex(msg, "\n"); i >= 0 {
+			msg = msg[i+1:]
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		return errors.New(msg)
+	}
+	return os.Rename(out, dest)
+}
+
+// CheckRuleSetURL downloads the rule-set at u right away (through the proxy
+// when connected), so that the rule set dialog can say whether it works.
+func (a *App) CheckRuleSetURL(u string) error {
+	u = store.NormalizeValue(store.KindURL, u)
+	if u == "" {
+		return errors.New(i18n.T("请输入以 http:// 或 https:// 开头的规则集地址"))
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if a.isRunning() {
+		if pu, err := url.Parse("http://" + proxyAddr(a.store.Settings())); err == nil {
+			transport.Proxy = http.ProxyURL(pu)
+		}
+	}
+	a.ruleSetMu.Lock()
+	defer a.ruleSetMu.Unlock()
+	if err := os.MkdirAll(a.ruleSetDir(), 0o755); err != nil {
+		return err
+	}
+	return a.fetchURLRuleSet(&http.Client{Transport: transport, Timeout: 20 * time.Second}, u,
+		filepath.Join(a.ruleSetDir(), config.URLRuleSetTag(u)+".srs"))
 }
 
 func downloadFile(ctx context.Context, client *http.Client, u, dest string) error {

@@ -5,6 +5,9 @@ import Icon from '../components/Icon.vue'
 import { api, type Connection } from '../api'
 import { state } from '../state'
 import { formatBytes, formatDuration, formatSpeed, run } from '../util'
+import Flag from '../components/Flag.vue'
+import { guessCountry } from '../country'
+import { ruleTitle, sceneInfo } from '../policies'
 
 interface Row extends Connection {
   upSpeed: number
@@ -39,7 +42,7 @@ const filtered = computed(() => {
   let list = rows.value
   if (q) {
     list = list.filter((c) =>
-      [c.metadata.host, c.metadata.destinationIP, c.metadata.processPath, c.rule, c.chains.join(' ')]
+      [c.metadata.host, c.metadata.destinationIP, c.metadata.processPath, c.rule, matchLabel(c).text, c.chains.join(' ')]
         .some((s) => s?.toLowerCase().includes(q)),
     )
   }
@@ -55,8 +58,35 @@ const filtered = computed(() => {
 const target = (c: Connection) =>
   (c.metadata.host || c.metadata.destinationIP) + ':' + c.metadata.destinationPort
 const processName = (p: string) => p.split(/[\\/]/).pop()?.replace(/ \(.*\)$/, '') ?? ''
-const chain = (c: Connection) => [...(c.chains ?? [])].reverse().join(' → ')
 const ruleText = (r: string) => r.replace(/ => .*$/, '')
+
+/** The routing step the connection took, the way the rules page names it. */
+function matchLabel(c: Connection): { text: string; tag?: string } {
+  const m = c.match
+  switch (m?.source) {
+    case 'rule':
+      return { text: ruleTitle({ kind: m.kind ?? '', values: m.values, name: m.name, app: m.app, count: m.count }), tag: m.kind === 'set' ? t('规则集') : undefined }
+    case 'scene':
+      return { text: sceneInfo(m.scene ?? '').label, tag: t('场景') }
+    case 'private':
+      return { text: t('局域网和本机地址') }
+    case 'excluded':
+      return { text: t('TUN 排除网段') }
+    case 'dns':
+      return { text: t('DNS 查询') }
+    case 'final':
+      return { text: t('其余流量') }
+  }
+  return { text: ruleText(c.rule) || '—' }
+}
+
+/** Where the connection leaves: the node (through a policy group: "group → node"), or direct. */
+function exitOf(c: Connection): { text: string; code: string; direct: boolean } {
+  const hops = [...(c.chains ?? [])].reverse().filter((h) => !h.startsWith('nb-step:') && h !== 'proxy')
+  const last = hops[hops.length - 1] ?? ''
+  if (last === 'direct' || !hops.length) return { text: t('直连'), code: '', direct: true }
+  return { text: hops.join(' → '), code: guessCountry(last), direct: false }
+}
 
 let timer = 0
 onMounted(() => {
@@ -96,7 +126,7 @@ onUnmounted(() => clearInterval(timer))
         <div class="thead">
           <span>{{ t('目标') }}</span>
           <span>{{ t('进程') }}</span>
-          <span>{{ t('规则 / 出站') }}</span>
+          <span>{{ t('命中规则 / 出口') }}</span>
           <span class="num">{{ t('速度') }}</span>
           <span class="num">{{ t('流量') }}</span>
           <span class="num">{{ t('时长') }}</span>
@@ -109,8 +139,15 @@ onUnmounted(() => clearInterval(timer))
               <span class="ellipsis mono" :title="target(c)">{{ target(c) }}</span>
             </span>
             <span class="ellipsis" :title="c.metadata.processPath">{{ processName(c.metadata.processPath) || '—' }}</span>
-            <span class="ellipsis" :title="c.rule">
-              <span class="faint">{{ ruleText(c.rule) }}</span> · <b>{{ chain(c) }}</b>
+            <span class="cell-route">
+              <span class="cell-rule" :title="ruleText(c.rule)">
+                <span v-if="matchLabel(c).tag" class="tag">{{ matchLabel(c).tag }}</span>
+                <span class="ellipsis">{{ matchLabel(c).text }}</span>
+              </span>
+              <span class="cell-exit" :class="{ direct: exitOf(c).direct }" :title="exitOf(c).text">
+                <Flag v-if="!exitOf(c).direct" :code="exitOf(c).code" :size="12" />
+                <b class="ellipsis">{{ exitOf(c).text }}</b>
+              </span>
             </span>
             <span class="num mono small">
               <span class="c-down">{{ formatSpeed(c.downSpeed) }}</span><br />
@@ -177,7 +214,7 @@ onUnmounted(() => clearInterval(timer))
 .thead,
 .tr {
   display: grid;
-  grid-template-columns: minmax(180px, 2.2fr) minmax(80px, 1fr) minmax(130px, 1.6fr) 92px 84px 64px 30px;
+  grid-template-columns: minmax(160px, 2fr) minmax(80px, 1fr) minmax(170px, 2fr) 84px 84px 60px 30px;
   gap: 12px;
   align-items: center;
   padding: 0 14px;
@@ -203,7 +240,7 @@ onUnmounted(() => clearInterval(timer))
   background: var(--hover);
 }
 .num {
-  text-align: right;
+  text-align: center;
 }
 .small {
   font-size: 11.5px;
@@ -227,6 +264,38 @@ onUnmounted(() => clearInterval(timer))
 .net.udp {
   background: color-mix(in srgb, #8b5cf6 14%, var(--card));
   color: #8b5cf6;
+}
+.cell-route {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+.cell-exit {
+  font-size: 12px;
+}
+.cell-rule,
+.cell-exit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cell-rule .tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--hover);
+  color: var(--text-2);
+}
+.cell-exit b {
+  font-weight: 600;
+}
+.cell-exit.direct b {
+  color: var(--good);
 }
 .tr button {
   opacity: 0;

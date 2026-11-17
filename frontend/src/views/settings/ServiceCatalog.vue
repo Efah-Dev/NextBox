@@ -28,7 +28,7 @@ const places = computed(() => {
   const m = new Map<string, number>()
   for (const sv of services) {
     let i = form.rules.findIndex((r) => r.app === sv.id)
-    if (i < 0) i = form.rules.findIndex((r) => !r.app && !r.disabled && r.kind === 'geosite' && sameSet(r.values, sv.sets))
+    if (i < 0) i = form.rules.findIndex((r) => !r.app && !r.disabled && (sv.suffix ? r.kind === 'suffix' && sameSet(r.values, sv.suffix) : r.kind === 'geosite' && sameSet(r.values, sv.sets)))
     if (i >= 0) m.set(sv.id, i)
   }
   return m
@@ -52,7 +52,7 @@ function choose(sv: Service, v: Target | '') {
   }
   // at the top of the route, only after ad blocking when that comes first
   const at = form.rules[0]?.kind === 'ads' ? 1 : 0
-  form.rules.splice(at, 0, { kind: 'geosite', values: [...sv.sets], target: v, app: sv.id })
+  form.rules.splice(at, 0, sv.suffix ? { kind: 'suffix', values: [...sv.suffix], target: v, app: sv.id } : { kind: 'geosite', values: [...sv.sets], target: v, app: sv.id })
 }
 
 /** What a service that has no place of its own does. */
@@ -73,7 +73,7 @@ const shown = computed(() => {
   const q = query.value.trim().toLowerCase()
   return services.filter((sv) => {
     if (cat.value === 'own' ? !choice(sv) : cat.value !== 'all' && sv.cat !== cat.value) return false
-    return !q || sv.name.toLowerCase().includes(q) || sv.id.includes(q) || sv.sets.some((s) => s.includes(q))
+    return !q || sv.name.toLowerCase().includes(q) || sv.id.includes(q) || sv.sets.some((s) => s.includes(q)) || !!sv.suffix?.some((s) => s.includes(q))
   })
 })
 const catLabel = (c: ServiceCategory) => serviceCategories.find((x) => x.id === c)?.label ?? c
@@ -147,7 +147,7 @@ const cardScenes = sceneCards()
         <ServiceIcon :service="sv" />
         <div class="svc-text">
           <b class="ellipsis">{{ sv.name }}</b>
-          <span class="sub ellipsis" :title="sv.sets.map((s) => 'geosite:' + s).join(', ')">
+          <span class="sub ellipsis" :title="sv.suffix ? sv.suffix.join(', ') : sv.sets.map((s) => 'geosite:' + s).join(', ')">
             <template v-if="choice(sv)">{{ t('单独指定') }}</template>
             <template v-else>{{ follows(sv) }}</template>
           </span>

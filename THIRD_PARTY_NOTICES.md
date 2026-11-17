@@ -12,7 +12,7 @@ It includes or redistributes the following third-party software.
 | Noto Sans SC (UI font, embedded in `NextBox.exe`) | 5.3.1 (@fontsource-variable) | SIL Open Font License 1.1 | https://github.com/notofonts/noto-cjk |
 
 `core/sing-box.exe` is built **without modification** from the official sing-box v1.14.4 source
-(`stable` branch) by `scripts/build-core.ps1`. Its complete corresponding source code is available
+(`stable` branch) by `scripts/build-core.ps1`, with fewer build tags than the official release (only the features NextBox uses). Its complete corresponding source code is available
 at the link above. The sing-box license adds: *"no derivative work may use the name or imply
 association with this application without prior consent."* NextBox is an independent project and is
 **not affiliated with or endorsed by** SagerNet or the sing-box project.
@@ -29,6 +29,7 @@ The full license texts are included in the release package under `licenses/`.
 | Wails v2 (`github.com/wailsapp/wails/v2`) | MIT |
 | go-webview2 (`github.com/wailsapp/go-webview2`) | MIT |
 | fyne systray (`fyne.io/systray`) | Apache-2.0 |
+| go-winio (`github.com/Microsoft/go-winio`, named pipes of service mode; also in `core/NextBoxService.exe`) | MIT |
 | yaml.v3 (`gopkg.in/yaml.v3`) | MIT and Apache-2.0 |
 | Go extended libraries (`golang.org/x/sys`, `x/net`, `x/crypto`, `x/text`) | BSD-3-Clause |
 | Vue 3 (`vue`) | MIT |

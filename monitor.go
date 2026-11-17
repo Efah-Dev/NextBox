@@ -10,6 +10,7 @@ import (
 	goruntime "runtime"
 	"strings"
 
+	"nextbox/internal/config"
 	"nextbox/internal/core"
 	"nextbox/internal/logfile"
 	"nextbox/internal/store"
@@ -32,7 +33,53 @@ func (a *App) GetConnections() (*core.Connections, error) {
 	if err != nil {
 		return &core.Connections{Connections: []core.Connection{}}, nil
 	}
-	return api.Connections(a.ctx)
+	conns, err := api.Connections(a.ctx)
+	if err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	rules := a.routeRules
+	a.mu.Unlock()
+	for i := range conns.Connections {
+		conns.Connections[i].Match = connMatch(conns.Connections[i], rules)
+	}
+	return conns, nil
+}
+
+// connMatch names the routing step of a connection: the step's own
+// outbound in its chain (config.StepTag), or what the core reports as the
+// rule for the steps that have none.
+func connMatch(c core.Connection, rules []store.Rule) *core.ConnMatch {
+	for _, tag := range c.Chains {
+		source, index, scene, ok := config.ParseStepTag(tag)
+		if !ok {
+			continue
+		}
+		m := &core.ConnMatch{Source: source, Scene: scene}
+		if source == "rule" && index >= 0 && index < len(rules) {
+			r := rules[index]
+			m.Name, m.App, m.Kind = r.Name, r.App, r.Kind
+			if r.IsSet() {
+				m.Count = len(r.Items)
+			} else {
+				m.Count = len(r.Values)
+				m.Values = r.Values[:min(3, len(r.Values))]
+			}
+		}
+		return m
+	}
+	rule := strings.ToLower(c.Rule)
+	switch {
+	case rule == "" || strings.HasPrefix(rule, "final"):
+		return &core.ConnMatch{Source: "final"}
+	case strings.Contains(rule, "ip_is_private"):
+		return &core.ConnMatch{Source: "private"}
+	case strings.Contains(rule, "hijack-dns"):
+		return &core.ConnMatch{Source: "dns"}
+	case strings.HasPrefix(rule, "ip_cidr="):
+		return &core.ConnMatch{Source: "excluded"}
+	}
+	return &core.ConnMatch{Source: "other"}
 }
 
 // CloseConnection closes one connection, or all of them when id is empty.

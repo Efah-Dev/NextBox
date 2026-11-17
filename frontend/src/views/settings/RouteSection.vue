@@ -21,14 +21,15 @@ import Icon from '../../components/Icon.vue'
 import Switch from '../../components/Switch.vue'
 import Segmented from '../../components/Segmented.vue'
 import RuleFields from './RuleFields.vue'
+import RuleSetEditor from './RuleSetEditor.vue'
 import ServiceCatalog from './ServiceCatalog.vue'
 import RouteStyleGuide from './RouteStyleGuide.vue'
 import { api, type Rule, type RouteMatch, type RouteView, type Settings } from '../../api'
 import { serviceOf } from '../../services'
 import { useDragSort } from '../../drag'
 import {
-  androidKind, defaultRoute, finalLabel as finalOf, isStep, policies, refreshPolicies, ruleKinds, rulesToText, sceneCards,
-  sceneInfo, targetClass, targetLabel, targetOptions, textToRules,
+  defaultRoute, finalLabel as finalOf, isStep, keepLabels, refreshPolicies, ruleFilled, rulesToText, ruleTitle,
+  sceneCards, sceneInfo, targetClass, targetLabel, targetOptions, textToRules,
 } from '../../policies'
 import { confirmDialog, run, toast } from '../../util'
 
@@ -91,7 +92,7 @@ function stepActive(r: Rule) {
   if (r.kind === 'ads') return form.blockAds
   if (!ruleMode.value) return false
   if (r.kind === 'scene') return !!sceneOf(r.values[0])?.enabled
-  return !r.disabled && r.kind !== 'package' && r.values.length > 0
+  return !r.disabled && r.kind !== 'package' && ruleFilled(r)
 }
 const activeAt = (pos: number) => pos === 0 || pos === last.value || stepActive(form.rules[pos - 1])
 
@@ -103,21 +104,19 @@ function skipNote(r: Rule) {
   if (r.kind === 'package') return t('安卓应用，只在 Android 版生效')
   if (r.kind === 'scene') return sceneOf(r.values[0])?.enabled ? '' : t('已关闭')
   if (r.disabled) return t('已停用')
-  if (!r.values.length) return t('还没填内容')
+  if (!ruleFilled(r)) return t('还没填内容')
   return ''
 }
 
 const finalLabel = computed(() => finalOf(form.routeMode))
 
-const kindLabel = (k: string) => [...ruleKinds, androidKind].find((x) => x.value === k)?.label ?? k
 function stepTitle(pos: number) {
   if (pos === 0) return t('局域网和本机地址')
   if (pos === last.value) return t('其余流量')
   const r = form.rules[pos - 1]
   if (r.kind === 'ads') return t('屏蔽广告')
   if (r.kind === 'scene') return sceneInfo(r.values[0]).label
-  if (r.app && serviceOf(r.app)) return serviceOf(r.app)!.name
-  return `${kindLabel(r.kind)} ${r.values.join(', ')}`
+  return ruleTitle(r)
 }
 
 // the excluded ranges, shown at the entrance of the path
@@ -178,6 +177,18 @@ async function addRule() {
 }
 const removeRule = (i: number) => form.rules.splice(i, 1)
 
+// ---- rule sets: made in their editor, then placed like a new rule
+const newSetOpen = ref(false)
+async function addSet(r: Rule) {
+  const cn = form.rules.findIndex((x) => x.kind === 'scene' && x.values[0] === 'cn')
+  const at = cn < 0 ? form.rules.length : cn
+  form.rules.splice(at, 0, r)
+  await nextTick()
+  const rows = view.value === 'path' ? pathEl.value?.querySelectorAll<HTMLElement>('.stn') : listEl.value?.querySelectorAll<HTMLElement>('.rule')
+  const shown = view.value === 'path' ? pathItems.value : ownItems.value
+  rows?.[shown.findIndex((x) => x.i === at)]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+}
+
 async function resetRules() {
   const ok = await confirmDialog(
     t('恢复默认分流规则'),
@@ -209,6 +220,7 @@ watch(text, (v) => {
   const { rules, errors, sceneTargets } = textToRules(v)
   textErrors.value = errors
   if (errors.length) return
+  keepLabels(rules, form.rules)
   form.rules = rules as Rule[]
   for (const [id, target] of Object.entries(sceneTargets)) {
     const sc = sceneOf(id)
@@ -295,6 +307,7 @@ const verdict = computed(() => {
         return t('局域网 / 本机地址 → 直连')
       case 'rule':
         if (app) return t('命中单独指定的服务「{0}」 → {1}', app.name, where)
+        if (form.rules[m.index]?.name) return t('命中「{0}」 → {1}', ruleTitle(form.rules[m.index]), where)
         return t('命中第 {0} 条规则 → {1}', ownItems.value.findIndex((x) => x.i === m.index) + 1, where)
       case 'scene':
         return t('命中常用场景「{0}」 → {1}', sceneInfo(m.scene).label, where)
@@ -361,6 +374,7 @@ const verdict = computed(() => {
     </form>
     <div v-if="match" class="verdict">
       <b class="mono">{{ match.input }}</b> · {{ verdict }}
+      <div v-if="match.resolved" class="faint small note">{{ t('按 IP 判断的步骤用直连 DNS 解析出的 {0}', match.resolved) }}</div>
       <div v-if="match.note" class="faint small note">{{ match.note }}</div>
     </div>
 
@@ -373,6 +387,7 @@ const verdict = computed(() => {
         <button class="btn ghost small" @click="textMode ? (textMode = false) : openText()">
           <Icon :name="textMode ? 'route' : 'edit'" :size="13" /> {{ textMode ? t('返回路径') : t('文本模式') }}
         </button>
+        <button v-if="!textMode" class="btn small" :title="t('把域名、IP、程序等放进一个有名称的规则集，统一指定去向')" @click="newSetOpen = true"><Icon name="layers" :size="13" /> {{ t('添加规则集') }}</button>
         <button v-if="!textMode" class="btn small primary-soft" @click="addRule"><Icon name="plus" :size="13" /> {{ t('添加规则') }}</button>
       </div>
 
@@ -492,6 +507,7 @@ const verdict = computed(() => {
           <button class="btn ghost small" @click="textMode ? (textMode = false) : openText()">
             <Icon :name="textMode ? 'settings' : 'edit'" :size="13" /> {{ textMode ? t('返回列表') : t('文本模式') }}
           </button>
+          <button v-if="!textMode" class="btn small" :title="t('把域名、IP、程序等放进一个有名称的规则集，统一指定去向')" @click="newSetOpen = true"><Icon name="layers" :size="13" /> {{ t('添加规则集') }}</button>
           <button v-if="!textMode" class="btn small primary-soft" @click="addRule"><Icon name="plus" :size="13" /> {{ t('添加规则') }}</button>
         </div>
         <div v-if="!textMode" ref="listEl" class="rules" :class="{ 'sort-settling': listSorter.drag.settling }">
@@ -520,11 +536,12 @@ const verdict = computed(() => {
         <div v-for="e in textErrors" :key="e"><Icon name="warn" :size="12" /> {{ e }}</div>
       </div>
       <p v-else class="faint small">
-        {{ t('修改会自动保存。类型：geosite、suffix（域名）、domain（完整域名）、keyword、regex、geoip、cidr（IP 段）、process（程序）。') }}
+        {{ t('修改会自动保存。类型：geosite、suffix（域名）、domain（完整域名）、keyword、regex、geoip、cidr（IP 段）、process（程序）；规则集里还可以用 url（规则集网址）。') }}
       </p>
     </template>
 
     <RouteStyleGuide v-model="guideOpen" :current="view" @done="guideDone" />
+    <RuleSetEditor v-model="newSetOpen" @save="addSet" />
 
     <!-- shared by all looks -->
     <!-- left: the hide switch and the hints; right: 恢复默认, centred on them -->
@@ -538,10 +555,6 @@ const verdict = computed(() => {
         <p v-if="!textMode && ruleMode && view === 'path' && !ownCount" class="faint small hint-line">
           <span>{{ t('还没有自己的规则。') }}</span>
           <span>{{ t('想让某个网站或程序单独直连、走代理或走某个分组代理，点「添加规则」。') }}</span>
-        </p>
-        <p v-if="!textMode && ruleMode && !policies.list.length" class="faint small hint-line">
-          <span>{{ t('想让不同网站走不同节点（例如 YouTube 走日本、Google 走美国）？') }}</span>
-          <span>{{ t('先在下面的「分组代理」里建好分组，再在规则里选择它。') }}</span>
         </p>
       </div>
       <button class="btn ghost small reset" :title="t('删除自己的规则，场景和顺序恢复成刚安装时的样子')" @click="resetRules">

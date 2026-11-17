@@ -94,7 +94,7 @@ func testBatch(ctx context.Context, bin, workDir string, s store.Settings, nodes
 		return err
 	}
 	proxyAddr := "127.0.0.1:" + strconv.Itoa(proxyPort)
-	p, err := Start(ctx, bin, workDir, cfg, api, nil)
+	p, err := Start(ctx, bin, workDir, cfg, api, Options{})
 	if err != nil {
 		return err
 	}

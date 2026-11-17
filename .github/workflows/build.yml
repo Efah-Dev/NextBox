@@ -1,6 +1,7 @@
 # Tests and builds NextBox on GitHub's runners for every push and pull request.
-# The result is NextBox.exe without the sing-box core: release packages (with
-# the core built from source by scripts/build-core.ps1) are made locally.
+# The result is NextBox.exe and NextBoxService.exe without the sing-box core:
+# release packages (with the core built from source by scripts/build-core.ps1)
+# are made locally.
 #
 # The tests that need the core (config check, latency, node switching) skip
 # themselves here, as the core is not built.
@@ -57,8 +58,13 @@ jobs:
           go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
           wails build -s -clean
 
+      - name: Build NextBoxService.exe
+        run: powershell -ExecutionPolicy Bypass -File scripts/build-service.ps1
+
       - uses: actions/upload-artifact@v4
         with:
           name: NextBox-windows-amd64
-          path: build/bin/NextBox.exe
+          path: |
+            build/bin/NextBox.exe
+            build/bin/core/NextBoxService.exe
           if-no-files-found: error

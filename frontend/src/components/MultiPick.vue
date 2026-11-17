@@ -5,10 +5,13 @@
 // the page itself so that scrolling or clipped parents do not cut it off.
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { t } from '../i18n'
+import { pinyinInitials } from '../pinyin'
 
 export interface PickOption {
   value: string
   label: string
+  /** more words the search finds it by (other languages, aliases), lower case */
+  keywords?: string
 }
 
 defineOptions({ inheritAttrs: false })
@@ -36,12 +39,30 @@ const rows = computed(() => {
   const own = model.value.filter((v) => v && !props.options.some((o) => o.value === v)).map((v) => ({ value: v, label: v }))
   const all = [...own, ...props.options]
   const q = query.value.trim().toLowerCase()
-  return q ? all.filter((o) => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q)) : all
+  if (!q) return all
+  // Latin letters also find Chinese names by their pinyin initials (日本 → rb)
+  // the closest matches first: the code or the start of the name (or of its
+  // initials), then anywhere in the name, then other words for it
+  const latin = /^[a-z]+$/.test(q)
+  const score = (o: PickOption) => {
+    const label = o.label.toLowerCase()
+    if (o.value.toLowerCase() === q || label.startsWith(q) || (latin && pinyinInitials(o.label).startsWith(q))) return 0
+    if (label.includes(q) || o.value.toLowerCase().includes(q)) return 1
+    if (o.keywords?.split(' ').some((w) => w.startsWith(q))) return 2
+    // inside a word only for longer text: "us" would find Russia and Australia
+    return q.length > 3 && o.keywords?.includes(q) ? 3 : -1
+  }
+  return all
+    .map((o, i) => ({ o, i, s: score(o) }))
+    .filter((x) => x.s >= 0)
+    .sort((a, b) => a.s - b.s || a.i - b.i)
+    .map((x) => x.o)
 })
 // what was typed can be added as a value of its own
 const extra = computed(() => {
   const q = query.value.trim().toLowerCase()
-  if (!q || /[\s,，]/.test(q)) return ''
+  // only when nothing in the list matches: "rb" is 日本, not a value of its own
+  if (!q || /[\s,，]/.test(q) || rows.value.length) return ''
   return [...props.options.map((o) => o.value), ...model.value].includes(q) ? '' : q
 })
 
@@ -104,7 +125,7 @@ onBeforeUnmount(() => listen(false))
 </script>
 
 <template>
-  <button ref="trigger" v-bind="$attrs" type="button" class="select pick" :class="{ open, empty: !summary }" :disabled="disabled" :title="summary" @click="show">
+  <button ref="trigger" v-bind="$attrs" type="button" class="select pick" :class="{ open, blank: !summary }" :disabled="disabled" :title="summary" @click="show">
     <span class="pick-text">{{ summary || placeholder || t('请选择') }}</span>
   </button>
   <Teleport to="body">
@@ -169,7 +190,7 @@ onBeforeUnmount(() => listen(false))
   text-overflow: ellipsis;
   line-height: 1.3;
 }
-.pick.empty {
+.pick.blank {
   color: var(--text-3);
 }
 .pick.open {

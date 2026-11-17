@@ -283,15 +283,30 @@ func Build(in Input) (map[string]any, error) {
 	if excl, _ := ParseCIDRs(s.TunExclude); len(excl) > 0 {
 		routeRules = append(routeRules, map[string]any{"ip_cidr": excl, "outbound": TagDirect})
 	}
+	resolved := false
 	for _, e := range entries {
 		r := e.routeRule()
 		if r == nil {
 			continue
 		}
+		// A connection to a domain name (the system proxy always gets
+		// those) has no IP to compare with IP ranges and IP rule-sets until
+		// the name is resolved: without this, "bypass mainland China" only
+		// knew the domains of geosite-cn. The direct DNS answers the way the
+		// site is reached from here; connections to IP addresses are left
+		// as they are.
+		if !resolved && e.hasIP() {
+			resolved = true
+			routeRules = append(routeRules, map[string]any{"action": "resolve", "server": TagDNSDirect})
+		}
 		if ob := outboundOf(e.Target); ob == "" {
 			r["action"] = "reject"
 		} else {
-			r["outbound"] = ob
+			// each step goes through an outbound of its own (StepTag), so
+			// that the connections page can tell which one matched
+			tag := StepTag(e)
+			outbounds = append(outbounds, map[string]any{"type": "selector", "tag": tag, "outbounds": []string{ob}})
+			r["outbound"] = tag
 		}
 		routeRules = append(routeRules, r)
 	}

@@ -428,3 +428,7 @@ func OnSessionEnd(fn func()) {
 		}
 	}()
 }
+
+// DeleteAutoStartTask removes the scheduled task of TUN-mode autostart
+// (needs administrator rights when the task runs elevated).
+func DeleteAutoStartTask() { deleteTask() }

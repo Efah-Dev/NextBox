@@ -115,9 +115,9 @@ func (a *App) rebuildTray() {
 	}
 	add(trayItem{label: i18n.T("TUN 模式"), check: true, checked: st.Settings.TunEnabled, fn: func() {
 		s := a.store.Settings()
-		if !s.TunEnabled && !st.Elevated {
+		if !s.TunEnabled && !st.Elevated && !a.serviceReady() {
 			a.ShowWindow()
-			a.emitError(i18n.T("TUN 模式需要管理员权限，请先“以管理员身份重启”"))
+			a.emitError(i18n.T("TUN 模式需要管理员权限，安装服务模式或以管理员运行。"))
 			return
 		}
 		s.TunEnabled = !s.TunEnabled

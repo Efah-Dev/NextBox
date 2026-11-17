@@ -143,6 +143,8 @@ type Connection struct {
 	Start    string       `json:"start"`
 	Chains   []string     `json:"chains"`
 	Rule     string       `json:"rule"`
+	// Match is filled in by NextBox: the routing step the connection took.
+	Match *ConnMatch `json:"match,omitempty"`
 }
 
 type Connections struct {
@@ -200,4 +202,22 @@ func (a *API) StreamTraffic(ctx context.Context, fn func(up, down int64)) error 
 		}
 	}
 	return sc.Err()
+}
+
+// ConnMatch is the routing step a connection matched, as the connections
+// page names it.
+type ConnMatch struct {
+	// Source is "rule" (one of the user's rules or rule sets), "scene",
+	// "private" (LAN addresses), "excluded" (TUN exclusions), "dns" (DNS
+	// queries the core answers itself), "final" (no step matched) or
+	// "other" (Rule says which).
+	Source string `json:"source"`
+	Scene  string `json:"scene,omitempty"`
+	// For a rule: what it is called and what it matches, so that the page
+	// can name it the way the rules page does.
+	Name   string   `json:"name,omitempty"`
+	App    string   `json:"app,omitempty"`
+	Kind   string   `json:"kind,omitempty"`
+	Values []string `json:"values,omitempty"` // the first few
+	Count  int      `json:"count,omitempty"`  // values (or items of a rule set) in all
 }

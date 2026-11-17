@@ -64,6 +64,8 @@ export interface Settings {
 }
 
 export type RuleKind = 'geosite' | 'suffix' | 'domain' | 'keyword' | 'regex' | 'geoip' | 'cidr' | 'process' | 'package'
+/** what an item of a rule set can be: any rule kind, or a sing-box rule-set at an address */
+export type ItemKind = RuleKind | 'url'
 /** places of ad blocking and of a scene among the rules (values[0] = scene id) */
 export type StepKind = 'ads' | 'scene'
 
@@ -74,11 +76,20 @@ export type Target = string
 export type RouteView = 'path' | 'cards' | 'apps'
 
 export interface Rule {
-  kind: RuleKind | StepKind
+  kind: RuleKind | StepKind | 'set'
   values: string[]
   target: Target
   disabled?: boolean
   app?: string // the service of the catalog it was set from
+  /** what the user calls it (shown on the connections page); every rule set has one */
+  name?: string
+  /** a rule set's contents (kind 'set') */
+  items?: RuleItem[]
+}
+
+export interface RuleItem {
+  kind: ItemKind
+  values: string[]
 }
 
 export interface Scene {
@@ -122,6 +133,8 @@ export interface RouteMatch {
   scene: string
   target: Target | 'final'
   note?: string
+  /** the address a domain was resolved to before the IP steps */
+  resolved?: string
 }
 
 /** A node that is kept and the copies of it (same connection, other names) that go. */
@@ -146,7 +159,7 @@ export interface ExitInfo {
 export interface AutoStartStatus {
   enabled: boolean
   ok: boolean
-  method: '' | 'run' | 'task'
+  method: '' | 'run' | 'task' | 'service'
   problem: '' | 'missing' | 'moved' | 'disabled' | 'tun' | 'user' | 'error'
   detail?: string
   /** the program sits where Windows may not find it at the next start */
@@ -263,6 +276,8 @@ export interface AppState {
   testing: boolean
   proxyMode: '' | 'system' | 'tun'
   elevated: boolean
+  /** the NextBox service can run TUN mode */
+  serviceReady: boolean
   coreFound: boolean
   corePath: string
   dataDir: string
@@ -290,6 +305,34 @@ export interface Connection {
   start: string
   chains: string[]
   rule: string
+  match?: ConnMatch
+}
+
+/** The routing step a connection took. */
+export interface ConnMatch {
+  source: 'rule' | 'scene' | 'private' | 'excluded' | 'dns' | 'final' | 'other'
+  scene?: string
+  name?: string
+  app?: string
+  kind?: string
+  values?: string[]
+  count?: number
+}
+
+export interface ServiceInfo {
+  installed: boolean
+  running: boolean
+  usable: boolean
+  dir: string
+  version?: string
+  problem?: '' | 'stopped' | 'notAllowed' | 'outdated' | 'error'
+  detail?: string
+  canInstall: boolean
+}
+
+export interface RunningProgram {
+  name: string
+  path: string
 }
 
 export interface Connections {
@@ -395,6 +438,12 @@ export const api = {
 
   updateRuleSets: () => call<string>('UpdateRuleSets'),
   testRoute: (input: string) => call<RouteMatch>('TestRoute', input),
+  checkRuleSetURL: (url: string) => call<void>('CheckRuleSetURL', url),
+  runningPrograms: () => call<RunningProgram[]>('RunningPrograms'),
+  pickProgram: () => call<string>('PickProgram'),
+  getServiceInfo: () => call<ServiceInfo>('GetServiceInfo'),
+  installService: () => call<ServiceInfo>('InstallService'),
+  uninstallService: () => call<ServiceInfo>('UninstallService'),
   checkCIDRs: (text: string) => call<number[]>('CheckCIDRs', text),
   listAdapters: () => call<Adapter[]>('ListAdapters'),
   getPolicies: () => call<PolicyView[]>('GetPolicies'),

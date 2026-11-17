@@ -51,8 +51,11 @@ function say(text: string, kind: 'ok' | 'bad' | 'plain') {
 const tun = computed({
   get: () => !!settings.value?.tunEnabled,
   set: (v) => {
-    if (v && !state.app?.elevated) {
-      toast(t('TUN 模式需要管理员权限，请先点击“提权”以管理员身份重启'), 'error')
+    if (v && !state.app?.elevated && !state.app?.serviceReady) {
+      // both ways to get the rights are explained there
+      toast(t('TUN 模式需要管理员权限，安装服务模式或以管理员运行。'), 'info')
+      state.settingsSection = 'tun'
+      state.page = 'settings'
       return
     }
     run(() => patchSettings({ tunEnabled: v }))
@@ -212,7 +215,7 @@ onUnmounted(() => {
           <div class="toggle" @click="tun = !tun">
             <Icon name="tun" :size="16" />
             <span class="toggle-label">{{ t('TUN 模式') }}</span>
-            <button v-if="!state.app?.elevated" class="admin-link" :title="t('TUN 模式需要管理员权限')" @click.stop="run(() => api.restartAsAdmin())">
+            <button v-if="!state.app?.elevated && !state.app?.serviceReady" class="admin-link" :title="t('TUN 模式需要管理员权限')" @click.stop="run(() => api.restartAsAdmin())">
               <Icon name="admin" :size="13" /> {{ t('提权') }}
             </button>
             <Switch v-model="tun" @click.stop />

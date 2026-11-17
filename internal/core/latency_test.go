@@ -46,7 +46,7 @@ func TestURLMeasuresThroughNode(t *testing.T) {
 		"experimental": map[string]any{
 			"clash_api": map[string]any{"external_controller": api.Addr, "secret": api.Secret},
 		},
-	}, api, nil)
+	}, api, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,8 @@ package sys
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows"
@@ -89,4 +91,22 @@ func TestRasConnections(t *testing.T) {
 	for _, conn := range rasConnections() {
 		t.Logf("dial-up / VPN entry: %s", windows.UTF16PtrToString(conn))
 	}
+}
+
+// The test binary itself is among the running programs, with its path.
+func TestRunningPrograms(t *testing.T) {
+	list, err := RunningPrograms()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe, _ := os.Executable()
+	for _, p := range list {
+		if strings.EqualFold(p.Name, filepath.Base(exe)) {
+			if p.Path == "" {
+				t.Errorf("no path for %s", p.Name)
+			}
+			return
+		}
+	}
+	t.Fatalf("%s not in %d programs", filepath.Base(exe), len(list))
 }

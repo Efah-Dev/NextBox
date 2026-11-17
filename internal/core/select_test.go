@@ -38,7 +38,7 @@ func TestSelectProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	p, err := Start(ctx, bin, t.TempDir(), cfg, api, nil)
+	p, err := Start(ctx, bin, t.TempDir(), cfg, api, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

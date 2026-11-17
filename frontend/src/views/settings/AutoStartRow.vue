@@ -26,14 +26,31 @@ watch(enabled, () => {
   status.value = undefined
   setTimeout(check, 900)
 })
-watch(() => state.app?.settings.tunEnabled, () => setTimeout(check, 900))
+watch(() => [state.app?.settings.tunEnabled, state.app?.serviceReady], () => setTimeout(check, 900))
 onMounted(() => {
   check()
   window.addEventListener('focus', check)
 })
 onBeforeUnmount(() => window.removeEventListener('focus', check))
 
+const methodTitle = computed(() => {
+  switch (status.value?.method) {
+    case 'service':
+      return t('登录 Windows 时由 NextBox 服务启动，不依赖启动项，任务管理器里也关不掉')
+    case 'task':
+      return t('通过计划任务以管理员身份启动')
+  }
+  return t('通过注册表启动项启动')
+})
+
 const problem = computed(() => {
+  if (status.value?.method === 'service' && status.value.problem) {
+    return {
+      title: t('NextBox 服务没有登记开机启动'),
+      text: status.value.problem === 'moved' ? t('服务记录的是别的位置的程序：{0}', status.value.detail ?? '') : t('服务里没有当前账户的开机启动记录。'),
+      fix: t('重新登记'),
+    }
+  }
   switch (status.value?.problem) {
     case 'missing':
       return { title: t('没有加入 Windows 启动项'), text: t('启动项被删除了（安全软件或优化工具常会这样做）。'), fix: t('重新添加') }
@@ -45,8 +62,8 @@ const problem = computed(() => {
       return {
         title: t('开机后 TUN 模式无法启动'),
         text: state.app?.elevated
-          ? t('TUN 模式需要管理员权限，普通启动项拿不到。改用计划任务以管理员身份启动即可。')
-          : t('TUN 模式需要管理员权限，普通启动项拿不到。请先“以管理员身份重启”，再点修复。'),
+          ? t('TUN 模式需要管理员权限，普通启动项拿不到。改用计划任务以管理员身份启动即可；也可以在「TUN 模式」里安装 NextBox 服务，以后都不需要管理员身份。')
+          : t('TUN 模式需要管理员权限，普通启动项拿不到。推荐在「TUN 模式」里安装 NextBox 服务（只授权一次）；或先“以管理员身份重启”，再点修复。'),
         fix: t('改用计划任务'),
       }
     case 'user':
@@ -122,9 +139,9 @@ async function fix() {
       </span>
       <span class="spacer" />
       <template v-if="enabled && status">
-        <span v-if="status.ok" :key="'ok' + seq" class="status ok" :title="status.method === 'task' ? t('通过计划任务以管理员身份启动') : t('通过注册表启动项启动')">
+        <span v-if="status.ok" :key="'ok' + seq" class="status ok" :title="methodTitle">
           <svg viewBox="0 0 24 24"><circle class="ring" cx="12" cy="12" r="9" /><path class="mark" d="M7.5 12.5 10.5 15.5 16.5 9" /></svg>
-          <span class="txt">{{ t('已加入 Windows 启动项') }}</span>
+          <span class="txt">{{ status.method === 'service' ? t('由 NextBox 服务启动') : t('已加入 Windows 启动项') }}</span>
         </span>
         <span v-else :key="'bad' + seq" class="status bad">
           <svg viewBox="0 0 24 24"><circle class="ring" cx="12" cy="12" r="9" /><path class="mark" d="M9 9l6 6" /><path class="mark m2" d="M15 9l-6 6" /></svg>

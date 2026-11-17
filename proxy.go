@@ -8,12 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"nextbox/internal/i18n"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"nextbox/internal/config"
 	"nextbox/internal/core"
+	"nextbox/internal/service"
 	"nextbox/internal/store"
 	"nextbox/internal/sys"
 
@@ -80,8 +83,13 @@ func (a *App) restartIfRunning() error {
 func (a *App) startLocked() error {
 	a.stopLocked()
 	s := a.store.Settings()
-	if s.TunEnabled && !sys.IsElevated() {
-		return errors.New(i18n.T("TUN 模式需要管理员权限，请先“以管理员身份重启”"))
+	// TUN mode needs administrator rights: this process has them, or the
+	// NextBox service runs the core
+	viaService := s.TunEnabled && !sys.IsElevated()
+	if viaService {
+		if err := a.serviceUsable(); err != nil {
+			return err
+		}
 	}
 	var node *store.Profile
 	if id := a.store.SelectedID(); id != 0 {
@@ -123,16 +131,22 @@ func (a *App) startLocked() error {
 	} else {
 		a.log(i18n.T("正在启动直连模式"))
 	}
-	proc, err := core.Start(a.ctx, a.corePath(), a.runDir(), cfg, api, a.logs.Append)
-	if err != nil && len(in.Nodes) > 0 {
-		// Most likely one of the other nodes has a configuration the core
-		// rejects; the selected node must still be usable on its own.
+	if viaService {
+		a.log(i18n.T("TUN 模式由 NextBox 服务运行内核"))
+	}
+	proc, err := a.startCore(cfg, api, viaService)
+	var notReady *core.NotReadyError
+	if err != nil && len(in.Nodes) > 0 && !errors.As(err, &notReady) {
+		// The core rejected the config: most likely one of the other nodes
+		// has settings it does not accept, and the selected node must still
+		// be usable on its own. (A core that only took too long to start
+		// would not do better with fewer nodes.)
 		a.log(i18n.T("内核未能加载分组里的全部节点，改为只加载当前节点（切换节点时会重启内核）"))
 		in.Nodes = nil
 		if cfg, err = config.Build(in); err != nil {
 			return err
 		}
-		proc, err = core.Start(a.ctx, a.corePath(), a.runDir(), cfg, api, a.logs.Append)
+		proc, err = a.startCore(cfg, api, viaService)
 	}
 	if err != nil {
 		a.log(err.Error())
@@ -166,6 +180,7 @@ func (a *App) startLocked() error {
 	a.runningID = nodeID
 	a.loaded = loaded
 	a.nodeTags, a.policyTags = nodeTags, policyTags
+	a.routeRules = s.Rules
 	a.tunActive = s.TunEnabled
 	a.startedAt = time.Now()
 	trafficCtx, cancel := context.WithCancel(a.ctx)
@@ -332,4 +347,42 @@ func (a *App) switchNode(id int64) bool {
 	a.log(i18n.T("已切换到节点: ") + p.Name)
 	go a.checkExit()
 	return true
+}
+
+// startCore runs the core, here or in the NextBox service. Right after
+// Windows started, a core may need much longer than usual to come up (the
+// network and the TUN driver are still starting), so a start by Windows
+// waits longer for it.
+func (a *App) startCore(cfg map[string]any, api *core.API, viaService bool) (*core.Process, error) {
+	o := core.Options{OnLog: a.logs.Append}
+	if a.autoStarted && time.Since(sys.BootTime()) < 10*time.Minute {
+		o.ReadyTimeout = 45 * time.Second
+	}
+	if !viaService {
+		return core.Start(a.ctx, a.corePath(), a.runDir(), cfg, api, o)
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	// the service cannot read NextBox's folder: the rule-sets go along
+	sets := map[string][]byte{}
+	if r, ok := cfg["route"].(map[string]any); ok {
+		list, _ := r["rule_set"].([]any)
+		for _, rs := range list {
+			p, _ := rs.(map[string]any)["path"].(string)
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return nil, err
+			}
+			sets[filepath.Base(p)] = data
+		}
+	}
+	return core.Attach(a.ctx, api, o, func(line func(string)) (core.Backend, error) {
+		r, err := service.StartCore(a.ctx, b, sets, line)
+		if err != nil {
+			return nil, serviceError(err)
+		}
+		return r, nil
+	})
 }

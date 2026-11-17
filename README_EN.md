@@ -5,7 +5,7 @@
 <h1 align="center">NextBox</h1>
 
 <p align="center">
-  A clean, modern Windows proxy client powered by sing-box
+  A lightweight, clean and modern Windows proxy client powered by sing-box
 </p>
 
 <p align="center">
@@ -49,18 +49,23 @@ with a rewritten launcher-style interface, the current sing-box configuration fo
   - **Route** (for experts): the order every connection is checked in as one line; ad blocking, the scenarios and your own rules can be dragged into any order; steps that are off can be hidden
 
   Rules match site categories (several at once), domains, IP regions (several at once), IP ranges and programs, and can be edited as text; testing a website or IP shows which rule matches. All three styles have *Reset*
+  - **Rule sets**: put domains, IPs, programs, site categories, IP regions and sing-box rule-sets from the web (.srs / .json URLs) into one named rule set with one target, and add many rules at once; supports pasting in bulk
+  - Rules can have names, which the connections page shows for the connections they matched; program rules can be picked from the running programs
+  - IP regions work with the system proxy too: domains are resolved with the direct DNS first, so Chinese websites that are not in the domain list still go direct
+  - The service catalog splits Steam into *store / community* and *downloads*: downloads go direct through the CDNs in China, the store and community can use the proxy
 - 🧩 **Policy groups**: group nodes by region, name keywords or by hand, use the fastest automatically or pick one, and send different sites through different groups (YouTube via Japan, Google via the US); groups by region or keyword pick up new nodes after subscription updates
 - 🚫 **Ad blocking**: works in every routing mode
 - 📍 **Exit info**: once connected, the home page shows the node's flag, exit IP (masked by default), its network (ASN, e.g. `AS13335 Cloudflare`) and a status light, with a button to copy the exit IP; checked again regularly
 - 🖥️ **System proxy**: set automatically on connect, including dial-up (PPPoE) and Windows VPN connections; restored on disconnect, exit and core crash; cleared first thing at Windows logoff / shutdown, and cleared at the next logon if NextBox was killed before it could
-- 🚀 **Autostart**: Settings shows whether Windows will really start NextBox; a disabled entry, a moved program and similar problems are explained with a one-click fix; with TUN mode NextBox starts through a scheduled task as administrator; optionally connects to the last node after starting with Windows and shows the window when that fails; shows how the last boot went, so a start blocked by security software shows up
-- 🛡️ **TUN mode**: captures all traffic (requires administrator; one-click "Restart as administrator"); *TUN exclusions* keep the networks of Tailscale, ZeroTier and the like out of TUN, added in one click from an adapter; optional FakeIP with an editable exclusion list
+- 🚀 **Autostart**: Settings shows whether Windows will really start NextBox; a disabled entry, a moved program and similar problems are explained with a one-click fix; with the NextBox service installed, the service starts NextBox when you log on to Windows, independent of the Run key and of Task Manager; without it, TUN mode starts NextBox through a scheduled task as administrator; optionally connects to the last node after starting with Windows and shows the window when that fails; shows how the last boot went, so a start blocked by security software shows up
+- 🛡️ **TUN mode**: captures all traffic. The optional *service mode* needs administrator approval once, when it is installed; after that TUN mode works without running NextBox as administrator. Without the service, use "Restart as administrator"; *TUN exclusions* keep the networks of Tailscale, ZeroTier and the like out of TUN, added in one click from an adapter; optional FakeIP with an editable exclusion list
 - 💾 **Backup & encryption**: export / import nodes and subscriptions, routing rules and other settings separately, encrypted with a password (AES-256, the same format as the Android version; Android-only rules and preferences are kept); the node list on disk can be encrypted too (tied to your Windows account, or with a start-up password); the core configuration is no longer written to disk
 - 🌍 **DNS**: remote DNS through the proxy, direct DNS locally; UDP / TCP / DoT / DoQ / DoH / DoH3
 - 📌 **Tray**: keeps running in the tray after closing the window; start / stop, switch node, route mode and TUN from the menu. Green dot = system proxy, red dot = TUN
-- 📜 **Connections & logs**: live connection list (target, process, rule, speed); log viewer with filters; optional log files with size limit and retention
+- 📜 **Connections & logs**: live connection list (target, process, the name of the rule it matched, exit node, speed); log viewer with filters; optional log files with size limit and retention
 - 🔄 **Updates**: check for new versions of NextBox and the sing-box core in Settings → About, compared with GitHub Releases; optional automatic check (off by default). It only notifies, nothing is downloaded
 - 🎨 **Look & feel**: light / dark / follow system; adjustable brightness of the light theme and depth of the dark theme (down to black); preset accent colors or a color panel (pink by default); Noto Sans SC font
+- 🔍 **Search in settings**: find an option by its name or description (Ctrl+F) and jump straight to it
 - 🌐 **Languages**: 简体中文, 繁體中文, English
 
 ## 📦 Download
@@ -80,7 +85,8 @@ and on up-to-date Windows 10).
 > flags with country search from v1.2.0 on; policy groups, the new routing rules, backup & encryption, FakeIP
 > and the autostart check from v2.0.0 on; NaiveProxy, the reorderable route and TUN exclusions from v2.1.0 on;
 > the service catalog, multiple site categories per rule, deleting duplicate nodes and the ASN of the exit IP
-> from v2.2.0 on.
+> from v2.2.0 on; rule sets, service mode (TUN without administrator, sturdier autostart), rule names on the connections page,
+> picking programs and search in settings from v2.3.0 on.
 
 ## 🚀 Quick start
 
@@ -91,21 +97,24 @@ and on up-to-date Windows 10).
 
 ## 🧩 sing-box core
 
-The release package ships `core/sing-box.exe`, built from **unmodified** official source:
+The release package ships `core/sing-box.exe`, built from **unmodified** official source with only the features NextBox uses (about half the size of the official build):
 
 | | |
 |---|---|
 | Version | **sing-box 1.14.4** |
 | Branch | **`stable`** (official stable release, tag [`v1.14.4`](https://github.com/SagerNet/sing-box/tree/v1.14.4)) |
 | Built with | Go 1.27.3, `windows/amd64`, CGO disabled |
-| Build tags | `with_gvisor, with_quic, with_dhcp, with_wireguard, with_utls, with_acme, with_clash_api, with_tailscale, with_ccm, with_ocm, with_cloudflared, with_naive_outbound, with_purego, with_usbip, with_openvpn, with_openconnect, badlinkname, tfogo_checklinkname0` |
+| Build tags | `with_gvisor, with_quic, with_dhcp, with_wireguard, with_utls, with_clash_api, with_naive_outbound, with_purego, badlinkname, tfogo_checklinkname0` |
 
-These are exactly the official Windows release tags. `libcronet.dll` next to it is the network library NaiveProxy
+Compared with the official Windows release, Tailscale, cloudflared, OpenVPN / OpenConnect, USB/IP, ACME and the CCM / OCM
+services are left out, as NextBox never uses them; every supported protocol (NaiveProxy, Hysteria2, TUIC, WireGuard ...)
+is there. `libcronet.dll` next to it is the network library NaiveProxy
 needs ([cronet-go](https://github.com/SagerNet/cronet-go), the version the sing-box source pins, as in the official
 package). The core version and tags are also shown in **Settings → About**.
 
 NextBox generates configurations in the sing-box **1.12+** format, so you can replace the core with any
 newer official release by dropping another `sing-box.exe` into `core/` (with its `libcronet.dll` for NaiveProxy).
+With service mode installed, click *Update service* in Settings → TUN mode afterwards so that the service gets the new core too.
 
 ## 💾 Where data is stored
 
@@ -120,6 +129,7 @@ Everything lives next to `NextBox.exe` (portable); to move NextBox to another PC
 | `config/cache/` | Temporary files of latency tests, emptied afterwards |
 | `config/autostart.json` | What happened when Windows started NextBox |
 | `config/android.json` | Android preferences from an imported backup, exported again with the settings |
+| `C:\Program Files\NextBox Service\` | Only with service mode installed: the service, a copy of the core, `service.json` (the accounts that may use it and what to start at logon) and `service.log`. Removed when you uninstall the service in Settings → TUN mode |
 
 With *Encrypt nodes and subscriptions* set to *Tied to your Windows account*, `profiles.json` only opens under
 this Windows account on this PC. Export a backup in Settings → Data & backup before moving to another PC.
@@ -184,6 +194,20 @@ rules and shared settings; ports, TUN and the like stay as they are.
 working, the right choice for most people. *Start-up password* asks for the password every time NextBox
 opens (when started with Windows it waits on the unlock screen); a forgotten password cannot be recovered.
 
+**TUN mode needs administrator rights.** Settings → TUN mode offers two ways: install *service mode* (one approval;
+NextBox then turns TUN on without running as administrator, and autostart gets sturdier), or "Restart as administrator"
+each time. The service lives in `C:\Program Files\NextBox Service` and can be uninstalled in the same place. After
+updating NextBox, click *Update service* there when it says the versions differ.
+
+**A Chinese website goes through the proxy.** Rule-based routing checks the domain list (geosite-cn) first; other
+domains are resolved with the direct DNS and judged by the region of their IP. When a site has no IP in China either
+(a CDN abroad, say), add a "domain → direct" rule or put it into a rule set of your own.
+
+**What is a rule set?** *Add rule set* puts rules of several kinds (domains, IPs, programs, site categories, sing-box
+rule-sets from the web) together under one name and one target, e.g. "Office network → direct". The connections page
+shows which rule set a connection matched. Rule-set URLs must point to sing-box `.srs` or `.json` rule-sets; Clash
+rules cannot be used directly.
+
 **Autostart does not work.** Settings → General → *Start with Windows* shows the result of a check. A
 disabled entry, a moved program or TUN mode without administrator rights are explained; click the fix button.
 The middle of that row shows how the last boot went: "Did not start" usually means security software
@@ -233,6 +257,12 @@ Build the sing-box core (expects the sing-box source in `../sing-box-stable`, ou
 powershell -ExecutionPolicy Bypass -File scripts/build-core.ps1
 ```
 
+Build `build/bin/core/NextBoxService.exe` for service mode (its version comes from `main.go`):
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/build-service.ps1
+```
+
 Run the tests (build the frontend first; the config, latency and node-switching tests use the core built
 above and skip themselves without it):
 
@@ -253,7 +283,9 @@ exit.go, startup.go           Exit IP and ASN checks; autostart check, cleanup a
 autostart_log.go              Records of every start by Windows
 tunexclude.go                 TUN exclusions: checks and the adapter list
 tray.go                       System tray
+servicemode.go                Installing, removing and checking service mode
 cmd/genicon/                  Generates the application icons
+cmd/nextbox-service/          NextBoxService.exe (service mode)
 internal/
   store/     Data model and JSON persistence
   link/      Share-link parsing / export, subscription formats
@@ -266,13 +298,15 @@ internal/
   icon/      Pink paw icon renderer (app + tray)
   i18n/      Backend translations (shares the dictionaries in frontend/src/i18n)
   logfile/   Log files with rotation and retention
-  sys/       System proxy, elevation, autostart (Windows)
+  sys/       System proxy, elevation, autostart, running programs (Windows)
+  service/   The NextBox service: named pipe protocol, runs the core with system rights, starts NextBox at logon
 frontend/src/
   views/        Home, Nodes, Connections, Logs, Settings (settings/ holds the sections)
   components/   Title bar, cards, dialogs, multi-select, service icons, …
   services.ts   The services of the catalog and their icons (Simple Icons)
   i18n/         en.json (Chinese → English), zh-TW.json (Simplified → Traditional)
 scripts/build-core.ps1   Builds sing-box from source
+scripts/build-service.ps1 Builds NextBoxService.exe
 docs/render/             Source of the README hero images
 ```
 
@@ -305,7 +339,7 @@ node docs/render/render.mjs
 - [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray): the project NextBox is based on
 - [SagerNet/sing-box](https://github.com/SagerNet/sing-box): proxy core
 - [SagerNet/sing-geosite](https://github.com/SagerNet/sing-geosite), [sing-geoip](https://github.com/SagerNet/sing-geoip): rule-sets
-- [Wails](https://wails.io), [Vue](https://vuejs.org), [fyne systray](https://github.com/fyne-io/systray), [Noto Sans SC](https://github.com/notofonts/noto-cjk)
+- [Wails](https://wails.io), [Vue](https://vuejs.org), [fyne systray](https://github.com/fyne-io/systray), [go-winio](https://github.com/microsoft/go-winio), [Noto Sans SC](https://github.com/notofonts/noto-cjk)
 - [Simple Icons](https://github.com/simple-icons/simple-icons): icons of the service catalog
 - Developed with the help of Claude (Anthropic)
 

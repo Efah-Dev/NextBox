@@ -2,20 +2,67 @@ package store
 
 import (
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 )
 
 // Rule sends traffic that matches any of Values to Target. Rules apply in
 // rule mode only and are checked in order, before the scenes.
+//
+// A rule set (Kind KindSet, v2.3) is a named rule of its own: Items lists
+// what it matches, of any kinds at once (domains, IPs, programs, site
+// categories, remote rule-sets ...), and everything it matches goes to its
+// one Target. Values is empty for it.
 type Rule struct {
-	Kind     string   `json:"kind"` // one of RuleKinds
+	Kind     string   `json:"kind"` // one of RuleKinds, or KindSet
 	Values   []string `json:"values"`
 	Target   string   `json:"target"` // TargetProxy, TargetDirect, TargetBlock or PolicyTarget(id)
 	Disabled bool     `json:"disabled,omitempty"`
 	// App is the service of the catalog (服务目录) the rule was set from, such as
 	// "youtube"; only a label for that look, the rule matches by Kind and Values.
 	App string `json:"app,omitempty"`
+	// Name is what the user calls the rule (v2.3): the connections page shows
+	// it for the connections the rule matched. Every rule set has one.
+	Name  string     `json:"name,omitempty"`
+	Items []RuleItem `json:"items,omitempty"` // a rule set's contents
+}
+
+// RuleItem is one part of a rule set: values of one kind (one of
+// ItemKinds), any of which matches.
+type RuleItem struct {
+	Kind   string   `json:"kind"`
+	Values []string `json:"values"`
+}
+
+// KindSet is a rule set; KindURL an item of one that is a sing-box rule-set
+// (binary .srs or source .json) downloaded from Values[0].
+const (
+	KindSet = "set"
+	KindURL = "url"
+)
+
+// ItemKinds are the kinds a rule set's items can have.
+var ItemKinds = append(append([]string(nil), RuleKinds...), KindURL)
+
+// IsSet reports whether r is a rule set.
+func (r Rule) IsSet() bool { return r.Kind == KindSet }
+
+// Empty reports whether a rule (not a step) matches nothing yet: a rule
+// without values or a rule set without items.
+func (r Rule) Empty() bool {
+	if r.IsStep() {
+		return false
+	}
+	if r.IsSet() {
+		for _, it := range r.Items {
+			if len(it.Values) > 0 {
+				return false
+			}
+		}
+		return true
+	}
+	return len(r.Values) == 0
 }
 
 // Steps of the route that are not rules of their own but have a place among
@@ -183,6 +230,10 @@ func NormalizeValue(kind, v string) string {
 		v = strings.ToLower(v)
 	case "geosite", "geoip":
 		v = strings.ToLower(v)
+	case KindURL:
+		if u, err := url.Parse(v); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return ""
+		}
 	case "cidr":
 		if ip := net.ParseIP(v); ip != nil {
 			if ip.To4() != nil {
@@ -203,29 +254,68 @@ func cleanRules(rules []Rule) []Rule {
 	for _, k := range RuleKinds {
 		known[k] = true
 	}
+	itemKind := map[string]bool{}
+	for _, k := range ItemKinds {
+		itemKind[k] = true
+	}
 	for _, r := range rules {
 		if r.IsStep() {
 			out = append(out, r) // see placeSteps
 			continue
 		}
-		if !known[r.Kind] {
-			continue
-		}
-		values := []string{} // a rule still being filled in keeps its place
-		seen := map[string]bool{}
-		for _, v := range r.Values {
-			if v = NormalizeValue(r.Kind, v); v != "" && !seen[v] {
-				seen[v] = true
-				values = append(values, v)
-			}
-		}
-		r.Values = values
+		r.Name = strings.TrimSpace(r.Name)
 		if r.Target == "" {
 			r.Target = TargetProxy
 		}
+		if r.IsSet() {
+			// items of the same kind are merged; a set keeps its place even
+			// while it has no items yet
+			r.Values = []string{}
+			byKind := map[string]int{}
+			items := []RuleItem{}
+			for _, it := range r.Items {
+				if !itemKind[it.Kind] {
+					continue
+				}
+				i, ok := byKind[it.Kind]
+				if !ok {
+					i = len(items)
+					byKind[it.Kind] = i
+					items = append(items, RuleItem{Kind: it.Kind, Values: []string{}})
+				}
+				items[i].Values = append(items[i].Values, it.Values...)
+			}
+			r.Items = items[:0]
+			for _, it := range items {
+				if it.Values = cleanValues(it.Kind, it.Values); len(it.Values) > 0 {
+					r.Items = append(r.Items, it)
+				}
+			}
+			out = append(out, r)
+			continue
+		}
+		if !known[r.Kind] {
+			continue
+		}
+		r.Items = nil
+		r.Values = cleanValues(r.Kind, r.Values) // a rule still being filled in keeps its place
 		out = append(out, r)
 	}
 	return out
+}
+
+// cleanValues normalises the values of one kind and drops empty and
+// repeated ones.
+func cleanValues(kind string, in []string) []string {
+	values := []string{}
+	seen := map[string]bool{}
+	for _, v := range in {
+		if v = NormalizeValue(kind, v); v != "" && !seen[v] {
+			seen[v] = true
+			values = append(values, v)
+		}
+	}
+	return values
 }
 
 // placeSteps gives ad blocking and every scene exactly one place among the

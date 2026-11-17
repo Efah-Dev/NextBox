@@ -1,8 +1,11 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
 	"nextbox/internal/store"
@@ -10,17 +13,20 @@ import (
 
 // SceneDef is what a scene (store.Scene) matches.
 type SceneDef struct {
-	ID   string
-	Sets []string // rule-set tags
-	CIDR []string
+	ID     string
+	Sets   []string // rule-set tags
+	CIDR   []string
+	Suffix []string // domain suffixes
 }
 
 // SceneDefs, in the order they are checked. Bypassing mainland China comes
-// last so that the more specific scenes win.
+// last so that the more specific scenes win. The game downloads include
+// Steam's content servers, whose store and community are left to the rest
+// of the route (store.SteamDownloadDomains).
 var SceneDefs = []SceneDef{
 	{ID: "ai", Sets: []string{"geosite-category-ai-!cn"}},
 	{ID: "media", Sets: []string{"geosite-youtube", "geosite-netflix", "geosite-disney", "geosite-spotify", "geosite-hbo", "geosite-primevideo", "geosite-tiktok"}},
-	{ID: "games", Sets: []string{"geosite-category-games@cn"}},
+	{ID: "games", Sets: []string{"geosite-category-games@cn"}, Suffix: store.SteamDownloadDomains},
 	{ID: "cn", Sets: []string{"geosite-cn", "geoip-cn"}},
 }
 
@@ -34,6 +40,38 @@ func sceneDef(id string) (SceneDef, bool) {
 }
 
 const adsRuleSet = "geosite-category-ads-all"
+
+// URLRuleSetTag is the tag (and file name, with ".srs") of a rule-set
+// downloaded from u: "url-" and a hash of the address.
+func URLRuleSetTag(u string) string {
+	h := sha256.Sum256([]byte(u))
+	return "url-" + hex.EncodeToString(h[:6])
+}
+
+// IsURLRuleSet reports whether a rule-set tag is one of URLRuleSetTag.
+func IsURLRuleSet(tag string) bool { return strings.HasPrefix(tag, "url-") }
+
+// URLRuleSets maps the tags of the remote rule-sets the settings use (in
+// rule sets of rule mode) to their addresses.
+func URLRuleSets(s store.Settings) map[string]string {
+	out := map[string]string{}
+	if s.RouteMode != "rule" {
+		return out
+	}
+	for _, r := range s.Rules {
+		if !r.IsSet() || r.Disabled {
+			continue
+		}
+		for _, it := range r.Items {
+			if it.Kind == store.KindURL {
+				for _, u := range it.Values {
+					out[URLRuleSetTag(u)] = u
+				}
+			}
+		}
+	}
+	return out
+}
 
 // Entry is one step of the routing decision, in order.
 type Entry struct {
@@ -78,35 +116,75 @@ func (m *matcher) add(kind string, values []string) {
 			if runtime.GOOS == "android" {
 				m.pkg = append(m.pkg, v)
 			}
+		case store.KindURL:
+			m.sets = append(m.sets, URLRuleSetTag(v))
 		}
 	}
 }
 
-// routeRule returns a logical-or sing-box rule matching any entry.
-func (m matcher) routeRule() map[string]any {
-	r := m.domainRule()
+// hasIP reports whether the entry has parts that match IP addresses (IP
+// ranges, IP rule-sets, or a remote rule-set, which may have both).
+func (m matcher) hasIP() bool {
 	if len(m.cidr) > 0 {
-		r["ip_cidr"] = m.cidr
+		return true
 	}
-	if len(m.process) > 0 {
-		r["process_name"] = m.process
+	for _, s := range m.sets {
+		if strings.HasPrefix(s, "geoip-") || IsURLRuleSet(s) {
+			return true
+		}
 	}
-	if len(m.pkg) > 0 {
-		r["package_name"] = m.pkg
+	return false
+}
+
+// anyOf joins sing-box rules: one stays as it is, more become a logical-or
+// rule. Fields of different groups in one sing-box rule (destination,
+// process, rule-set) must all match, so an entry matching by several of them
+// needs one rule per group.
+func anyOf(parts []map[string]any) map[string]any {
+	switch len(parts) {
+	case 0:
+		return nil
+	case 1:
+		return parts[0]
+	}
+	rules := make([]any, len(parts))
+	for i, p := range parts {
+		rules[i] = p
+	}
+	return map[string]any{"type": "logical", "mode": "or", "rules": rules}
+}
+
+// routeRule returns the sing-box rule that matches when any part of the
+// entry does.
+func (m matcher) routeRule() map[string]any {
+	var parts []map[string]any
+	dest := m.domainRule()
+	if len(m.cidr) > 0 {
+		dest["ip_cidr"] = m.cidr // the same group as the domains in sing-box
+	}
+	if len(dest) > 0 {
+		parts = append(parts, dest)
 	}
 	if len(m.sets) > 0 {
-		r["rule_set"] = m.sets
+		parts = append(parts, map[string]any{"rule_set": m.sets})
 	}
-	if len(r) == 0 {
-		return nil
+	if len(m.process) > 0 {
+		parts = append(parts, map[string]any{"process_name": m.process})
 	}
-	return r
+	if len(m.pkg) > 0 {
+		parts = append(parts, map[string]any{"package_name": m.pkg})
+	}
+	return anyOf(parts)
 }
 
 // dnsRule is the part of the matcher that applies to DNS queries (domains
-// only); nil when there is none.
+// and domain rule-sets); nil when there is none. Remote rule-sets are left
+// out: they may hold IP rules, which mean something else for DNS.
 func (m matcher) dnsRule() map[string]any {
-	r := m.domainRule()
+	var parts []map[string]any
+	if r := m.domainRule(); len(r) > 0 {
+		parts = append(parts, r)
+	}
 	var geosite []string
 	for _, s := range m.sets {
 		if strings.HasPrefix(s, "geosite-") {
@@ -114,12 +192,9 @@ func (m matcher) dnsRule() map[string]any {
 		}
 	}
 	if len(geosite) > 0 {
-		r["rule_set"] = geosite
+		parts = append(parts, map[string]any{"rule_set": geosite})
 	}
-	if len(r) == 0 {
-		return nil
-	}
-	return r
+	return anyOf(parts)
 }
 
 func (m matcher) domainRule() map[string]any {
@@ -170,7 +245,7 @@ func Entries(s store.Settings) []Entry {
 			target = store.TargetDirect
 		}
 		return Entry{Source: "scene", Index: index, Scene: id, Target: target,
-			matcher: matcher{sets: append([]string(nil), d.Sets...), cidr: append([]string(nil), d.CIDR...)}}, true
+			matcher: matcher{sets: append([]string(nil), d.Sets...), cidr: append([]string(nil), d.CIDR...), suffix: append([]string(nil), d.Suffix...)}}, true
 	}
 	var out []Entry
 	adsPlaced := false
@@ -198,7 +273,13 @@ func Entries(s store.Settings) []Entry {
 			continue
 		}
 		e := Entry{Source: "rule", Index: i, Target: r.Target}
-		e.add(r.Kind, r.Values)
+		if r.IsSet() {
+			for _, it := range r.Items {
+				e.add(it.Kind, it.Values)
+			}
+		} else {
+			e.add(r.Kind, r.Values)
+		}
 		if !e.empty() {
 			out = append(out, e)
 		}
@@ -291,3 +372,40 @@ func (e Entry) CIDRs() []string       { return e.cidr }
 func (e Entry) Processes() []string   { return e.process }
 func (e Entry) Packages() []string    { return e.pkg }
 func (e Entry) RuleSetTags() []string { return e.sets }
+
+// Outbound tags of the routing steps. Every step that sends traffic
+// somewhere does so through a selector of its own that only holds the real
+// target, so that a connection's chain names the step it matched (the clash
+// API reports chains, not rules).
+const stepTagPrefix = "nb-step:"
+
+// StepTag is the outbound tag of an entry: "nb-step:rule:3" for the rule at
+// Settings.Rules[3], "nb-step:scene:cn" for a scene.
+func StepTag(e Entry) string {
+	if e.Source == "scene" {
+		return stepTagPrefix + "scene:" + e.Scene
+	}
+	return stepTagPrefix + e.Source + ":" + strconv.Itoa(e.Index)
+}
+
+// ParseStepTag reads a StepTag: source "rule" with the rule's index, or
+// "scene" with the scene ID. ok is false for any other outbound.
+func ParseStepTag(tag string) (source string, index int, scene string, ok bool) {
+	rest, found := strings.CutPrefix(tag, stepTagPrefix)
+	if !found {
+		return "", 0, "", false
+	}
+	source, arg, _ := strings.Cut(rest, ":")
+	switch source {
+	case "scene":
+		return source, -1, arg, true
+	case "rule":
+		i, err := strconv.Atoi(arg)
+		return source, i, "", err == nil
+	}
+	return "", 0, "", false
+}
+
+// HasIP reports whether the entry matches IP addresses too (see hasIP): the
+// core resolves domain names before the first such entry.
+func (e Entry) HasIP() bool { return e.hasIP() }

@@ -604,3 +604,20 @@ body.sorting * {
   position: relative;
   z-index: 6;
 }
+
+/* a setting found by the search on the settings page */
+@keyframes search-flash {
+  0%,
+  60% {
+    background: var(--accent-soft-2);
+    box-shadow: 0 0 0 6px var(--accent-soft-2);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+.search-flash {
+  border-radius: var(--radius-sm);
+  animation: search-flash 1.8s ease-out;
+}

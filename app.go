@@ -39,6 +39,7 @@ type App struct {
 	loaded       map[int64]loadedNode // nodes in the running core, by profile id
 	nodeTags     map[int64]string     // outbound tags of every node in the running core
 	policyTags   map[int64]string     // outbound tags of the policy groups in the running core
+	routeRules   []store.Rule         // Settings.Rules the running core was started with (see GetConnections)
 	startedAt    time.Time
 	sysProxyAddr string
 	stopTraffic  context.CancelFunc
@@ -52,6 +53,7 @@ type App struct {
 	autoLogMu    sync.Mutex
 	fileLog      atomic.Pointer[logfile.Writer] // nil while file logging is off
 	quitting     bool                           // set by Quit so the close handler lets the window go
+	serviceOK    atomic.Bool                    // the service was usable when last asked (GetServiceInfo)
 
 	tray trayState
 }
@@ -108,6 +110,7 @@ func (a *App) startup(ctx context.Context) {
 	// Get the rule-sets ready in the background; a failure (no network, a
 	// timeout) is only logged, connecting simply skips the affected rules.
 	go a.ensureRuleSets()
+	go func() { a.GetServiceInfo(); a.emitState() }()
 	go a.backgroundLoop(ctx)
 	sys.OnSessionEnd(a.onSessionEnd)
 	switch {
@@ -130,7 +133,9 @@ func (a *App) startup(ctx context.Context) {
 }
 
 // autoConnect connects at start-up (连接 on start, or after a start by
-// Windows); a failure after a start by Windows shows the window.
+// Windows); a failure after a start by Windows shows the window. Right after
+// Windows started, the network or the TUN driver may not be ready yet: a
+// start by Windows tries twice more before giving up.
 func (a *App) autoConnect() {
 	err := a.Connect()
 	if !a.autoStarted {
@@ -138,6 +143,18 @@ func (a *App) autoConnect() {
 			a.log(i18n.T("自动连接失败: ") + err.Error())
 		}
 		return
+	}
+	for _, wait := range []time.Duration{5 * time.Second, 15 * time.Second} {
+		if err == nil || a.isRunning() {
+			break
+		}
+		a.log(fmt.Sprintf(i18n.T("开机自启后自动连接失败，%d 秒后重试: %s"), int(wait.Seconds()), err))
+		time.Sleep(wait)
+		if a.isRunning() { // connected by hand meanwhile
+			err = nil
+			break
+		}
+		err = a.Connect()
 	}
 	if err != nil {
 		a.autoStartFailed("failed", err.Error())
@@ -211,22 +228,24 @@ func (a *App) log(line string) {
 // ---------------------------------------------------------------- state
 
 type StateInfo struct {
-	Version        string         `json:"version"`
-	Running        bool           `json:"running"`
-	RunningID      int64          `json:"runningId"`
-	SelectedID     int64          `json:"selectedId"`
-	CurrentGroupID int64          `json:"currentGroupId"`
-	StartedAt      int64          `json:"startedAt"`
-	Testing        bool           `json:"testing"`
-	ProxyMode      string         `json:"proxyMode"` // "", "system" or "tun"
-	Elevated       bool           `json:"elevated"`
-	CoreFound      bool           `json:"coreFound"`
-	CorePath       string         `json:"corePath"`
-	DataDir        string         `json:"dataDir"`
-	Settings       store.Settings `json:"settings"`
-	Groups         []store.Group  `json:"groups"`
-	Locked         bool           `json:"locked"`     // the node list waits for its password
-	Encryption     string         `json:"encryption"` // store.Encrypt*
+	Version        string `json:"version"`
+	Running        bool   `json:"running"`
+	RunningID      int64  `json:"runningId"`
+	SelectedID     int64  `json:"selectedId"`
+	CurrentGroupID int64  `json:"currentGroupId"`
+	StartedAt      int64  `json:"startedAt"`
+	Testing        bool   `json:"testing"`
+	ProxyMode      string `json:"proxyMode"` // "", "system" or "tun"
+	Elevated       bool   `json:"elevated"`
+	// ServiceReady: the NextBox service can run TUN mode (see servicemode.go)
+	ServiceReady bool           `json:"serviceReady"`
+	CoreFound    bool           `json:"coreFound"`
+	CorePath     string         `json:"corePath"`
+	DataDir      string         `json:"dataDir"`
+	Settings     store.Settings `json:"settings"`
+	Groups       []store.Group  `json:"groups"`
+	Locked       bool           `json:"locked"`     // the node list waits for its password
+	Encryption   string         `json:"encryption"` // store.Encrypt*
 }
 
 func (a *App) GetState() StateInfo {
@@ -247,6 +266,7 @@ func (a *App) GetState() StateInfo {
 	info.SelectedID = a.store.SelectedID()
 	info.CurrentGroupID = a.store.CurrentGroupID()
 	info.Elevated = sys.IsElevated()
+	info.ServiceReady = a.serviceOK.Load()
 	info.CoreFound = err == nil
 	info.CorePath = a.corePath()
 	info.DataDir = a.dataDir()

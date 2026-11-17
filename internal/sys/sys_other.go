@@ -71,3 +71,17 @@ func CoreBinaryName() string   { return "sing-box" }
 
 func Protect(data []byte) ([]byte, error)   { return nil, errUnsupported() }
 func Unprotect(data []byte) ([]byte, error) { return nil, errUnsupported() }
+
+// RunningProgram is a program that is running now (Windows only).
+type RunningProgram struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+func RunningPrograms() ([]RunningProgram, error) { return nil, errUnsupported() }
+
+var ErrCancelled = errors.New("cancelled")
+
+func RunElevated(args string) (uint32, error) { return 0, errUnsupported() }
+
+func DeleteAutoStartTask() {}

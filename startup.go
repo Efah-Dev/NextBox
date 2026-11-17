@@ -4,11 +4,14 @@ package main
 // system proxy pointing at a port nobody listens on any more.
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
 
 	"nextbox/internal/i18n"
+	"nextbox/internal/service"
 	"nextbox/internal/store"
 	"nextbox/internal/sys"
 )
@@ -63,12 +66,25 @@ type AutoStartStatus struct {
 	Records  []AutoStartRecord `json:"records"` // newest first
 }
 
-// wantedAutoStart is the method that suits the settings: a scheduled task
-// with administrator rights for TUN mode (it can only be created while
-// running as administrator), the Run entry otherwise.
+// autoStartService is the method of AutoStartStatus when the NextBox service
+// starts NextBox at logon (v2.3): it does not depend on the Run key or a
+// scheduled task, cannot be switched off in Task Manager's startup list, and
+// TUN mode needs no administrator rights through it.
+const autoStartService = "service"
+
+// serviceReady reports whether the service is there for this user.
+func (a *App) serviceReady() bool { return a.GetServiceInfo().Usable }
+
+// wantedAutoStart is the method that suits the settings: the service when
+// it is installed; otherwise a scheduled task with administrator rights for
+// TUN mode (it can only be created while running as administrator), the
+// Run entry for the rest.
 func (a *App) wantedAutoStart(s store.Settings) string {
 	if !s.AutoStart {
 		return ""
+	}
+	if a.serviceReady() {
+		return autoStartService
 	}
 	if s.TunEnabled && sys.IsElevated() {
 		return sys.AutoStartTask
@@ -81,18 +97,59 @@ func (a *App) wantedAutoStart(s store.Settings) string {
 
 func (a *App) applyAutoStart(s store.Settings) error {
 	method := a.wantedAutoStart(s)
-	if method == sys.AutoStartTask {
+	var err error
+	switch {
+	case method == autoStartService:
+		err = a.setServiceAutoStart(true)
+		if err == nil {
+			sys.SetAutoStart("") // the Run entry would start a second copy
+		}
+	case method == sys.AutoStartTask:
 		if cur := sys.GetAutoStart(); cur.Method == sys.AutoStartTask && sys.SameExe(cur.Path) {
 			return nil
 		}
+		err = sys.SetAutoStart(method)
+	default:
+		if a.serviceReady() {
+			a.setServiceAutoStart(false)
+		}
+		err = sys.SetAutoStart(method)
 	}
-	err := sys.SetAutoStart(method)
 	if err != nil {
 		a.log(i18n.T("设置开机自启失败: ") + err.Error())
 	} else if method != "" {
 		a.autoStartEnabled()
 	}
 	return err
+}
+
+func (a *App) setServiceAutoStart(on bool) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if p, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = p
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 5*time.Second)
+	defer cancel()
+	_, err = service.SetAutostart(ctx, exe, on)
+	return err
+}
+
+// serviceAutoStart is the program the service starts when this user logs
+// on; ok is false when the service is not there for this user.
+func (a *App) serviceAutoStart() (path string, ok bool) {
+	if !a.serviceReady() {
+		return "", false
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 3*time.Second)
+	defer cancel()
+	st, err := service.Hello(ctx)
+	if err != nil {
+		return "", false
+	}
+	return st.Autostart, true
 }
 
 func (a *App) GetAutoStartStatus() AutoStartStatus {
@@ -106,6 +163,18 @@ func (a *App) GetAutoStartStatus() AutoStartStatus {
 	}
 	if l := a.readAutoStartLog(); l.Records != nil {
 		st.Records = l.Records
+	}
+	if path, ok := a.serviceAutoStart(); ok {
+		st.Method = autoStartService
+		switch {
+		case path == "":
+			st.Problem = "missing"
+		case !sys.SameExe(path):
+			st.Problem, st.Detail = "moved", path
+		default:
+			st.OK = true
+		}
+		return st
 	}
 	info := sys.GetAutoStart()
 	st.Method = info.Method
@@ -131,18 +200,20 @@ func (a *App) RepairAutoStart() (AutoStartStatus, error) {
 	s := a.store.Settings()
 	st := a.GetAutoStartStatus()
 	var err error
-	switch st.Problem {
-	case "":
+	switch {
+	case st.Problem == "":
 		return st, nil
-	case "disabled":
+	case st.Method == autoStartService:
+		err = a.setServiceAutoStart(true)
+	case st.Problem == "disabled":
 		if st.Method == sys.AutoStartRun {
 			err = sys.RepairAutoStart()
 		} else {
 			err = a.recreateAutoStart(s)
 		}
-	case "tun":
+	case st.Problem == "tun":
 		if !sys.IsElevated() {
-			return st, errors.New(i18n.T("TUN 模式开机自启需要管理员权限：请先点击“以管理员身份重启”，再点修复"))
+			return st, errors.New(i18n.T("TUN 模式开机自启需要管理员权限：请先在「设置 → TUN 模式」安装 NextBox 服务，或以管理员身份重启后再点修复"))
 		}
 		err = sys.SetAutoStart(sys.AutoStartTask)
 	default:
@@ -156,6 +227,9 @@ func (a *App) RepairAutoStart() (AutoStartStatus, error) {
 
 func (a *App) recreateAutoStart(s store.Settings) error {
 	method := a.wantedAutoStart(s)
+	if method == autoStartService {
+		return a.applyAutoStart(s)
+	}
 	if cur := sys.GetAutoStart(); cur.Method == sys.AutoStartTask && !sys.IsElevated() {
 		return errors.New(i18n.T("开机自启由管理员权限的计划任务负责，修复需要管理员权限：请先点击“以管理员身份重启”"))
 	}

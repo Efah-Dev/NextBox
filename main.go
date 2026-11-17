@@ -37,9 +37,15 @@ var i18nTW []byte
 //go:embed frontend/src/places.json
 var placesJSON []byte
 
-const Version = "2.2.0"
+const Version = "2.3.0"
 
 func main() {
+	// run as administrator by NextBox to install or remove its service
+	for _, arg := range os.Args[1:] {
+		if arg == "--service-install" || arg == "--service-uninstall" {
+			os.Exit(serviceHelper(os.Args[1:]))
+		}
+	}
 	startMinimised := false
 	for _, arg := range os.Args[1:] {
 		switch {
