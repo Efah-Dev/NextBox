@@ -136,11 +136,12 @@ func (a *App) startLocked() error {
 	}
 	proc, err := a.startCore(cfg, api, viaService)
 	var notReady *core.NotReadyError
-	if err != nil && len(in.Nodes) > 0 && !errors.As(err, &notReady) {
-		// The core rejected the config: most likely one of the other nodes
-		// has settings it does not accept, and the selected node must still
-		// be usable on its own. (A core that only took too long to start
-		// would not do better with fewer nodes.)
+	if err != nil && len(in.Nodes) > 0 && !errors.As(err, &notReady) && nodeConfigError(err) {
+		// The core rejected one of the nodes: most likely one of the other
+		// nodes has settings it does not accept, and the selected node must
+		// still be usable on its own. (A core that only took too long to
+		// start, or that rejected the DNS or routing part, would not do
+		// better with fewer nodes.)
 		a.log(i18n.T("内核未能加载分组里的全部节点，改为只加载当前节点（切换节点时会重启内核）"))
 		in.Nodes = nil
 		if cfg, err = config.Build(in); err != nil {
@@ -385,4 +386,11 @@ func (a *App) startCore(cfg map[string]any, api *core.API, viaService bool) (*co
 		}
 		return r, nil
 	})
+}
+
+// nodeConfigError reports whether the core's start-up error is about a node
+// (an outbound or endpoint) rather than another part of the config.
+func nodeConfigError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "outbound") || strings.Contains(msg, "endpoint")
 }

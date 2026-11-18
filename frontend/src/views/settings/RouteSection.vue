@@ -15,6 +15,7 @@
 // reset to the defaults; cards and path also the text mode. The first time
 // the section is seen, a guide helps choosing the look (RouteStyleGuide).
 import { t } from '../../i18n'
+import ResolveDns from './ResolveDns.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import Card from '../../components/Card.vue'
 import Icon from '../../components/Icon.vue'
@@ -45,6 +46,8 @@ const mirrors = [
 
 const sceneOf = (id: string) => form.scenes.find((s) => s.id === id)
 const ruleMode = computed(() => form.routeMode === 'rule')
+// how "bypass mainland China" resolves names (see ResolveDns.vue)
+const resolveLabel = computed(() => (form.bypassDns === 'direct' ? t('直连 DNS 解析') : t('接管 DNS 解析')))
 
 const view = computed<RouteView>({
   get: () => (form.routeView === 'cards' || form.routeView === 'apps' ? form.routeView : 'path'),
@@ -442,14 +445,15 @@ const verdict = computed(() => {
               <template v-else-if="x.r.kind === 'scene'">
                 <div class="what">
                   <b><span class="tag">{{ t('场景') }}</span>{{ sceneInfo(x.r.values[0]).label }}</b>
-                  <span class="sub">{{ skipNote(x.r) || sceneInfo(x.r.values[0]).desc }}</span>
+                  <span class="sub">{{ skipNote(x.r) || sceneInfo(x.r.values[0]).desc }}<template v-if="x.r.values[0] === 'cn' && sceneOf('cn')?.enabled && !skipNote(x.r)"> · {{ resolveLabel }}</template></span>
                 </div>
                 <span v-if="x.r.values[0] === 'cn'" class="to to-direct">{{ t('直连') }}</span>
                 <select v-else-if="sceneOf(x.r.values[0])" v-model="sceneOf(x.r.values[0])!.target" class="select mini target" :class="targetClass(sceneOf(x.r.values[0])!.target)">
                   <option v-for="o in targetOptions(false)" :key="o.value" :value="o.value">{{ o.label }}</option>
                 </select>
                 <Switch v-if="sceneOf(x.r.values[0])" v-model="sceneOf(x.r.values[0])!.enabled" />
-                <span />
+                <ResolveDns v-if="x.r.values[0] === 'cn' && sceneOf('cn')?.enabled" v-model="form.bypassDns" />
+                <span v-else />
               </template>
 
               <RuleFields v-else :rule="x.r" :note="skipNote(x.r)" @remove="removeRule(x.i)" />
@@ -494,6 +498,7 @@ const verdict = computed(() => {
               <select v-else-if="sceneOf(sc.id)" v-model="sceneOf(sc.id)!.target" class="select mini" :class="targetClass(sceneOf(sc.id)!.target)">
                 <option v-for="o in targetOptions(false)" :key="o.value" :value="o.value">{{ o.label }}</option>
               </select>
+              <ResolveDns v-if="sc.id === 'cn' && sceneOf('cn')?.enabled" v-model="form.bypassDns" class="end" />
             </div>
           </div>
         </div>
@@ -733,6 +738,9 @@ const verdict = computed(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.scene-to .end {
+  margin-left: auto;
 }
 .tag {
   font-size: 10px;

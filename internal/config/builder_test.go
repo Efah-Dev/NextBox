@@ -72,7 +72,7 @@ func TestMainConfigAccepted(t *testing.T) {
 	bin := singBox(t)
 	ruleDir := t.TempDir()
 	// rule mode uses the bundled rule-sets, as with the default local mirror
-	for _, name := range []string{"geosite-cn", "geoip-cn"} {
+	for _, name := range []string{"geosite-cn", "geoip-cn", ForeignSites} {
 		if err := ruleset.Install(name, filepath.Join(ruleDir, name+".srs")); err != nil {
 			t.Fatal(err)
 		}
@@ -217,8 +217,8 @@ func TestSkipMissingRuleSets(t *testing.T) {
 	in := Input{Settings: s, Node: &node, ClashAPI: "127.0.0.1:9090", Secret: "x", RuleSetDir: dir}
 
 	var missing *MissingRuleSetsError
-	if _, err := Build(in); !errors.As(err, &missing) || len(missing.Names) != 2 {
-		t.Fatalf("want missing geosite-cn and ads, got %v", err)
+	if _, err := Build(in); !errors.As(err, &missing) || len(missing.Names) != 3 {
+		t.Fatalf("want missing geosite-cn, ads and the foreign sites, got %v", err)
 	}
 
 	in.SkipMissingRuleSets = true
@@ -227,10 +227,14 @@ func TestSkipMissingRuleSets(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(cfg)
-	for _, name := range []string{"geosite-cn", "geosite-category-ads-all"} {
+	for _, name := range []string{"geosite-cn", "geosite-category-ads-all", ForeignSites} {
 		if strings.Contains(string(b), name) {
 			t.Errorf("config still references missing %s", name)
 		}
+	}
+	// without the list of foreign sites, names are not resolved at all
+	if strings.Contains(string(b), `"resolve"`) {
+		t.Error("resolve step without the foreign sites list")
 	}
 	if !strings.Contains(string(b), `"geoip-cn"`) {
 		t.Error("available geoip-cn rule was dropped")

@@ -85,3 +85,6 @@ var ErrCancelled = errors.New("cancelled")
 func RunElevated(args string) (uint32, error) { return 0, errUnsupported() }
 
 func DeleteAutoStartTask() {}
+
+func TaskbarReady() bool             { return true }
+func WaitTaskbar(time.Duration) bool { return true }

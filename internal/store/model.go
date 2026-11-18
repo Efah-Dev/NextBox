@@ -139,6 +139,11 @@ type Settings struct {
 	RouteView      string `json:"routeView,omitempty"`
 	RouteHideOff   bool   `json:"routeHideOff,omitempty"`
 	RouteViewAsked bool   `json:"routeViewAsked,omitempty"`
+	// ResolveDNS is the DNS server that resolves domain names for the steps
+	// matching IP addresses (IP ranges, IP regions, "bypass mainland
+	// China"): ResolveRemote (the default, "" too) or ResolveDirect. Known foreign sites
+	// are never resolved for this (see config.ForeignSites).
+	ResolveDNS string `json:"bypassDns,omitempty"`
 
 	RemoteDNS  string `json:"remoteDns"`
 	DirectDNS  string `json:"directDns"`
@@ -174,9 +179,16 @@ type Settings struct {
 
 const (
 	// LocalRuleSetMirror uses the rule-sets bundled in the executable
-	// (geosite-cn, geoip-cn); anything else is fetched from RemoteRuleSetMirror.
+	// (geosite-cn, geoip-cn, geosite-geolocation-!cn); anything else is fetched
+	// from RemoteRuleSetMirror.
 	LocalRuleSetMirror  = "local"
 	RemoteRuleSetMirror = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-{kind}@rule-set/{name}.srs"
+)
+
+// Settings.ResolveDNS values.
+const (
+	ResolveDirect = "direct" // the direct DNS: answers as the site is reached from here
+	ResolveRemote = "remote" // the remote DNS, through the proxy: never tampered with
 )
 
 func DefaultSettings() Settings {
@@ -200,13 +212,14 @@ func DefaultSettings() Settings {
 		ThemeScale:       ThemeScale,
 		AutoStartConnect: true,
 		RuleSetMirror:    LocalRuleSetMirror,
+		ResolveDNS:       ResolveRemote,
 		RemoteDNS:        "https://1.1.1.1/dns-query",
 		DirectDNS:        "223.5.5.5",
 		Sniff:            true,
 		TestURL:          "https://www.google.com/generate_204",
 		TestTimeout:      5000,
 		TestConcurrency:  16,
-		SubUserAgent:     "NextBox/2.3.0 (sing-box; ClashMeta compatible)",
+		SubUserAgent:     "NextBox/2.3.1 (sing-box; ClashMeta compatible)",
 		SubUpdateHours:   12,
 		CountrySource:    CountryExit,
 		LogLevel:         "info",
@@ -251,6 +264,11 @@ func (s *Settings) fillDefaults() {
 	s.Rules = placeSteps(cleanRules(splitSteam(s.Rules)), s.Scenes)
 	if s.RuleSetMirror == "" {
 		s.RuleSetMirror = d.RuleSetMirror
+	}
+	// the remote DNS unless the direct one was chosen (it can answer blocked
+	// sites with wrong addresses, see config.ForeignSites)
+	if s.ResolveDNS != ResolveDirect {
+		s.ResolveDNS = ResolveRemote
 	}
 	if s.RemoteDNS == "" {
 		s.RemoteDNS = d.RemoteDNS

@@ -54,7 +54,7 @@ const encOn = computed({
 
 // ---- export ----
 const exportOpen = ref(false)
-const exp = reactive({ nodes: true, rules: true, settings: false, encrypt: true, password: '', password2: '' })
+const exp = reactive({ nodes: true, rules: true, appearance: true, settings: false, encrypt: true, password: '', password2: '' })
 const strength = computed(() => {
   const p = exp.password
   let s = 0
@@ -65,7 +65,7 @@ const strength = computed(() => {
   return p ? Math.max(1, s) : 0
 })
 const exportProblem = computed(() => {
-  if (!exp.nodes && !exp.rules && !exp.settings) return t('请至少选择一项内容')
+  if (!exp.nodes && !exp.rules && !exp.appearance && !exp.settings) return t('请至少选择一项内容')
   if (!exp.encrypt) return ''
   if ([...exp.password].length < 6) return t('密码至少 6 位')
   if (exp.password !== exp.password2) return t('两次输入的密码不一致')
@@ -76,7 +76,7 @@ function openExport() {
   exportOpen.value = true
 }
 async function doExport() {
-  const path = await run(() => api.exportBackup({ nodes: exp.nodes, rules: exp.rules, settings: exp.settings, password: exp.encrypt ? exp.password : '' }))
+  const path = await run(() => api.exportBackup({ nodes: exp.nodes, rules: exp.rules, appearance: exp.appearance, settings: exp.settings, password: exp.encrypt ? exp.password : '' }))
   if (path) {
     exportOpen.value = false
     toast(t('已导出到 {0}', path), 'success')
@@ -85,7 +85,7 @@ async function doExport() {
 
 // ---- import ----
 const importOpen = ref(false)
-const imp = reactive({ path: '', password: '', info: null as BackupInfo | null, error: '', busy: false, nodes: true, replace: false, rules: true, settings: false })
+const imp = reactive({ path: '', password: '', info: null as BackupInfo | null, error: '', busy: false, nodes: true, replace: false, rules: true, appearance: true, settings: false })
 async function openImport() {
   const path = await run(() => api.chooseBackup())
   if (!path) return
@@ -101,6 +101,7 @@ async function inspect() {
     if (!imp.info.needPassword) {
       imp.nodes = imp.info.hasNodes
       imp.rules = imp.info.hasRules
+      imp.appearance = imp.info.hasAppearance
       imp.settings = false
     }
   } catch (e) {
@@ -114,7 +115,7 @@ const foreign = computed(() => imp.info && imp.info.platform !== 'windows')
 async function doImport() {
   if (imp.nodes && imp.replace && !(await confirmDialog(t('替换现有节点'), t('现有的分组、节点和分组代理都会被备份里的内容替换，确定吗？'), true, t('替换')))) return
   imp.busy = true
-  const msg = await run(() => api.importBackup(imp.path, { nodes: imp.nodes, rules: imp.rules, settings: imp.settings, password: imp.password, replace: imp.replace }), (m) => m)
+  const msg = await run(() => api.importBackup(imp.path, { nodes: imp.nodes, rules: imp.rules, appearance: imp.appearance, settings: imp.settings, password: imp.password, replace: imp.replace }), (m) => m)
   imp.busy = false
   if (msg) {
     importOpen.value = false
@@ -171,7 +172,8 @@ const fileName = computed(() => imp.path.split(/[\\/]/).pop())
     <Modal v-model="exportOpen" :title="t('导出配置')" :width="460">
       <label class="check"><input v-model="exp.nodes" type="checkbox" /> {{ t('节点与订阅') }}<span class="faint">{{ t('含链式代理和分组代理') }}</span></label>
       <label class="check"><input v-model="exp.rules" type="checkbox" /> {{ t('分流规则') }}<span class="faint">{{ t('{0} 条规则', state.app?.settings.rules.filter((r) => r.kind !== 'ads' && r.kind !== 'scene').length ?? 0) }}</span></label>
-      <label class="check"><input v-model="exp.settings" type="checkbox" /> {{ t('其他设置') }}<span class="faint">{{ t('端口、TUN 等只在 Windows 上导入') }}</span></label>
+      <label class="check"><input v-model="exp.appearance" type="checkbox" /> {{ t('外观') }}<span class="faint">{{ t('主题、主题色、语言') }}</span></label>
+      <label class="check"><input v-model="exp.settings" type="checkbox" /> {{ t('其他设置') }}<span class="faint">{{ t('DNS、测速、端口、TUN 等；端口和 TUN 只在 Windows 上导入') }}</span></label>
       <div class="enc-row">
         <span><Icon name="lock" :size="14" /> {{ t('用密码加密') }}</span>
         <Switch v-model="exp.encrypt" />
@@ -223,9 +225,10 @@ const fileName = computed(() => imp.path.split(/[\\/]/).pop())
           <p class="faint small">{{ imp.replace ? t('现有的分组和节点会被替换。') : t('已有的订阅不会重复添加。') }}</p>
         </div>
         <label v-if="imp.info.hasRules" class="check"><input v-model="imp.rules" type="checkbox" /> {{ t('分流规则') }}<span class="faint">{{ t('{0} 条，会替换现有规则', imp.info.rules) }}</span></label>
+        <label v-if="imp.info.hasAppearance" class="check"><input v-model="imp.appearance" type="checkbox" /> {{ t('外观') }}<span class="faint">{{ t('主题、主题色、语言') }}</span></label>
         <label v-if="imp.info.hasSettings" class="check">
           <input v-model="imp.settings" type="checkbox" /> {{ t('其他设置') }}
-          <span class="faint">{{ foreign ? t('来自其他系统：只导入主题、DNS、测速等通用设置') : t('包括端口、TUN 等') }}</span>
+          <span class="faint">{{ foreign ? t('来自其他系统：只导入 DNS、测速等通用设置') : t('包括 DNS、端口、TUN 等') }}</span>
         </label>
         <p v-if="foreign && imp.rules && imp.info.androidRules" class="faint android-note">
           {{ t('其中 {0} 条按安卓应用分流，只在 Android 版生效，会原样保留，再导出给手机时不会丢。', imp.info.androidRules) }}
@@ -236,7 +239,7 @@ const fileName = computed(() => imp.path.split(/[\\/]/).pop())
       </template>
       <template #footer>
         <button class="btn" @click="importOpen = false">{{ t('取消') }}</button>
-        <button class="btn primary" :disabled="!imp.info || imp.info.needPassword || imp.busy || (!imp.nodes && !imp.rules && !imp.settings)" @click="doImport">
+        <button class="btn primary" :disabled="!imp.info || imp.info.needPassword || imp.busy || (!imp.nodes && !imp.rules && !imp.appearance && !imp.settings)" @click="doImport">
           <Icon name="download" :size="14" /> {{ t('导入') }}
         </button>
       </template>

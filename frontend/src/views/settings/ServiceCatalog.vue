@@ -15,6 +15,7 @@ import ServiceIcon from '../../components/ServiceIcon.vue'
 import type { RouteMatch, Settings, Target } from '../../api'
 import { finalLabel, isStep, sceneCards, sceneInfo, targetClass, targetLabel, targetOptions } from '../../policies'
 import { serviceCategories, services, type Service, type ServiceCategory } from '../../services'
+import ResolveDns from './ResolveDns.vue'
 
 const props = defineProps<{ form: Settings; match: RouteMatch | null }>()
 defineEmits<{ view: ['path' | 'cards'] }>()
@@ -104,12 +105,13 @@ const cardScenes = sceneCards()
       <span class="faint small">{{ t('没有单独指定的服务跟随这里') }}</span>
     </div>
     <div class="scene-strip">
-      <div v-for="sc in cardScenes" :key="sc.id" class="chip-scene" :class="{ on: sceneOf(sc.id)?.enabled }">
+      <div v-for="sc in cardScenes" :key="sc.id" class="chip-scene" :class="{ on: sceneOf(sc.id)?.enabled, 'with-dns': sc.id === 'cn' && sceneOf('cn')?.enabled }">
         <span class="ellipsis" :title="sc.desc">{{ sc.label }}</span>
         <span v-if="sc.id === 'cn'" class="to to-direct">{{ t('直连') }}</span>
         <select v-else-if="sceneOf(sc.id)" v-model="sceneOf(sc.id)!.target" class="select mini" :class="targetClass(sceneOf(sc.id)!.target)">
           <option v-for="o in targetOptions(false)" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
+        <ResolveDns v-if="sc.id === 'cn' && sceneOf('cn')?.enabled" v-model="form.bypassDns" />
         <Switch v-if="sceneOf(sc.id)" v-model="sceneOf(sc.id)!.enabled" />
       </div>
     </div>
@@ -198,6 +200,10 @@ const cardScenes = sceneCards()
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 8px;
+}
+/* "bypass mainland China" also holds its resolve button, before the switch */
+.chip-scene.with-dns {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
 }
 .chip-scene {
   display: grid;

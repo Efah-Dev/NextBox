@@ -284,9 +284,10 @@ func (a *App) TestRoute(input string) (RouteMatch, error) {
 			}
 		}
 	}
-	// Like the core, a domain name is resolved with the direct DNS before
-	// the first step that matches IP addresses, and from then on the steps
-	// are checked against both.
+	// Like the core, a domain name is resolved before the first step that
+	// matches IP addresses (except known foreign sites, see
+	// config.ForeignSites), and from then on the steps are checked against
+	// both.
 	isDomain := ip == nil
 	var addrs []net.IP
 	resolved := !isDomain
@@ -296,11 +297,19 @@ func (a *App) TestRoute(input string) (RouteMatch, error) {
 	for _, e := range config.Entries(s) {
 		if !resolved && e.HasIP() {
 			resolved = true
-			addrs = a.resolveDirect(s.DirectDNS, host)
-			if len(addrs) > 0 {
-				res.Resolved = addrs[0].String()
-			} else {
-				res.Note = i18n.T("直连 DNS 没有解析出这个域名的 IP，按 IP 判断的规则（IP 段、IP 归属地）已跳过")
+			switch {
+			case a.ruleSetMatches(config.ForeignSites, host):
+				res.Note = i18n.T("已知的境外网站不做解析，按域名交给后面的规则，按 IP 判断的规则（IP 段、IP 归属地）不会命中")
+			case s.ResolveDNS == store.ResolveRemote:
+				// the remote DNS goes through the proxy, which the tester does not use
+				res.Note = i18n.T("解析方式是「接管 DNS 解析」，试一试不经过代理查询，按 IP 判断的规则（IP 段、IP 归属地）已跳过")
+			default:
+				addrs = a.resolveDirect(s.DirectDNS, host)
+				if len(addrs) > 0 {
+					res.Resolved = addrs[0].String()
+				} else {
+					res.Note = i18n.T("直连 DNS 没有解析出这个域名的 IP，按 IP 判断的规则（IP 段、IP 归属地）已跳过")
+				}
 			}
 		}
 		if a.entryMatches(e, host, isDomain, addrs) {

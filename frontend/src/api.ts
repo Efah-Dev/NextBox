@@ -35,6 +35,8 @@ export interface Settings {
   routeHideOff?: boolean
   /** the user has been asked which look to use */
   routeViewAsked?: boolean
+  /** DNS that resolves names for the IP steps ("bypass mainland China"): remote (default) | direct */
+  bypassDns?: string
   remoteDns: string
   directDns: string
   enableIpv6: boolean
@@ -181,6 +183,7 @@ export interface Adapter {
 export interface BackupOptions {
   nodes: boolean
   rules: boolean
+  appearance: boolean
   settings: boolean
   password: string
   replace?: boolean
@@ -194,6 +197,7 @@ export interface BackupInfo {
   hasNodes: boolean
   hasRules: boolean
   hasSettings: boolean
+  hasAppearance: boolean
   summary: { groups: number; subscriptions: number; nodes: number; chains: number; policies: number }
   rules: number
   /** rules by Android app, kept but only used by NextBox for Android */

@@ -82,7 +82,7 @@ func TestAndroidBackup(t *testing.T) {
 
 	cur := store.DefaultSettings()
 	cur.RouteMode = "global"
-	keys := append(append([]string{}, ruleSettings...), portableSettings...)
+	keys := append(append(append([]string{}, ruleSettings...), portableSettings...), appearanceSettings...)
 	keys = slices.DeleteFunc(keys, func(k string) bool { return k == "routeMode" })
 	next, err := mergeSettings(cur, d.Settings, keys, true)
 	if err != nil {
@@ -107,13 +107,13 @@ func TestMergeSettings(t *testing.T) {
 	cur.MixedPort, cur.Theme = 2030, "light"
 	imported := json.RawMessage(`{"routeMode":"rule","proxyRules":"google.com","mixedPort":7890,"theme":"dark","tunEnabled":true}`)
 
-	// from Android: rules and portable settings only
-	next, err := mergeSettings(cur, imported, append(append([]string{}, ruleSettings...), portableSettings...), true)
+	// from Android: rules, the look and the portable settings only
+	next, err := mergeSettings(cur, imported, importKeys(backupDoc{Platform: "android", Settings: imported}, BackupOptions{Rules: true, Appearance: true, Settings: true}), true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	next.Normalize()
-	if next.MixedPort != 2030 || next.TunEnabled || next.Theme != "dark" || next.RouteMode != "rule" {
+	if next.MixedPort != 2030 || next.TunEnabled || next.Theme != "dark" || next.RouteMode != cur.RouteMode { // the mode stays this device's
 		t.Errorf("cross-platform merge: port %d tun %v theme %s mode %s", next.MixedPort, next.TunEnabled, next.Theme, next.RouteMode)
 	}
 	if r := ownRules(next.Rules); len(r) != 1 || r[0].Values[0] != "google.com" {
@@ -131,5 +131,41 @@ func TestMergeSettings(t *testing.T) {
 	remapPolicies(&s, map[int64]int64{7: 42})
 	if s.Rules[0].Target != store.PolicyTarget(42) || s.Rules[1].Target != store.TargetProxy {
 		t.Errorf("remap: %+v", s.Rules)
+	}
+}
+
+// The look of the app is a part of its own: exported and imported alone,
+// and taken from an older backup that has it among the other settings.
+func TestAppearancePart(t *testing.T) {
+	s := store.DefaultSettings()
+	s.Theme, s.AccentColor, s.RecentColors, s.MixedPort = "dark", "#123456", []string{"#123456"}, 7890
+	raw, _ := json.Marshal(s)
+	look, err := keepParts(raw, BackupOptions{Appearance: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]json.RawMessage
+	json.Unmarshal(look, &m)
+	if _, ok := m["theme"]; !ok || len(m) != len(appearanceSettings) {
+		t.Fatalf("appearance part: %s", look)
+	}
+
+	cur := store.DefaultSettings()
+	cur.MixedPort = 2030
+	for _, platform := range []string{backupPlatform, "android"} {
+		// an older backup: the look among the other settings
+		doc := backupDoc{Platform: platform, Settings: raw}
+		next, err := mergeSettings(cur, raw, importKeys(doc, BackupOptions{Appearance: true}), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if next.Theme != "dark" || next.AccentColor != "#123456" || len(next.RecentColors) != 1 || next.MixedPort != 2030 {
+			t.Errorf("%s: theme %s accent %s recent %v port %d", platform, next.Theme, next.AccentColor, next.RecentColors, next.MixedPort)
+		}
+		// the other settings alone leave the look as it is
+		next, _ = mergeSettings(cur, raw, importKeys(doc, BackupOptions{Settings: true}), false)
+		if next.Theme != cur.Theme || next.AccentColor != cur.AccentColor {
+			t.Errorf("%s: other settings changed the look", platform)
+		}
 	}
 }

@@ -348,7 +348,29 @@ func usesProcess(entries []Entry) bool {
 
 // RequiredRuleSets lists the rule-sets the current settings need.
 func RequiredRuleSets(s store.Settings) []string {
-	return RuleSets(Entries(s))
+	entries := Entries(s)
+	names := RuleSets(entries)
+	if needsResolve(entries) {
+		names = append(names, ForeignSites)
+	}
+	return names
+}
+
+// ForeignSites is the rule-set of known sites outside mainland China. Their
+// names are not resolved for the steps that match IP addresses: they go
+// through the proxy by name. The direct DNS answers some of them (blocked
+// ones) with wrong addresses, and the proxy was then sent to those.
+const ForeignSites = "geosite-geolocation-!cn"
+
+// needsResolve reports whether a step matches IP addresses, so that domain
+// names are resolved before it (see Build).
+func needsResolve(entries []Entry) bool {
+	for _, e := range entries {
+		if e.routeRule() != nil && e.hasIP() {
+			return true
+		}
+	}
+	return false
 }
 
 // UsedPolicies lists the policy groups the settings send traffic to.
@@ -409,3 +431,17 @@ func ParseStepTag(tag string) (source string, index int, scene string, ok bool) 
 // HasIP reports whether the entry matches IP addresses too (see hasIP): the
 // core resolves domain names before the first such entry.
 func (e Entry) HasIP() bool { return e.hasIP() }
+
+// setField sets a match field on a rule made by anyOf. A logical rule takes
+// match fields only in its sub-rules (sing-box rejects them on the logical
+// rule itself), so there it goes into each one: (a or b) and f is
+// (a and f) or (b and f).
+func setField(r map[string]any, key string, value any) {
+	if r["type"] == "logical" {
+		for _, sub := range r["rules"].([]any) {
+			setField(sub.(map[string]any), key, value)
+		}
+		return
+	}
+	r[key] = value
+}

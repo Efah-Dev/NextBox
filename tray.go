@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"nextbox/internal/i18n"
 	goruntime "runtime"
+	"strings"
 	"sync"
 	"time"
 
 	"nextbox/internal/icon"
 	"nextbox/internal/store"
+	"nextbox/internal/sys"
 
 	"fyne.io/systray"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -35,11 +38,45 @@ func (a *App) startTray() {
 		"system": icon.ICO(sizes, &icon.Green),
 		"tun":    icon.ICO(sizes, &icon.Red),
 	}
+	// the tray library reports its failures through the standard logger
+	log.SetFlags(0)
+	log.SetOutput(logLine(func(s string) { a.log(strings.TrimSpace(s)) }))
 	go func() {
+		// Right after logon (a start by Windows or by the NextBox service)
+		// Explorer runs before its taskbar answers. Adding the icon then can
+		// time out: Windows still shows an empty icon, but the tray library
+		// takes the time-out for a failure and never sets the picture, the
+		// menu or the click handlers, which left a blank icon that did
+		// nothing. So the icon is added once the taskbar answers.
+		if !sys.TaskbarReady() {
+			a.log(i18n.T("等待任务栏就绪后再显示托盘图标"))
+			if !sys.WaitTaskbar(3 * time.Minute) {
+				a.log(i18n.T("任务栏 3 分钟内没有就绪，仍然尝试显示托盘图标"))
+			}
+			time.Sleep(2 * time.Second) // the notification area comes a moment after the bar
+		}
+		// if the icon still could not be added, the window is the only way in
+		time.AfterFunc(30*time.Second, func() {
+			a.tray.mu.Lock()
+			ready := a.tray.ready
+			a.tray.mu.Unlock()
+			if !ready {
+				a.log(i18n.T("托盘图标创建失败，已显示主窗口"))
+				a.ShowWindow()
+			}
+		})
 		// The tray window and its message loop must live on one OS thread.
 		goruntime.LockOSThread()
 		systray.Run(a.onTrayReady, a.onTrayExit)
 	}()
+}
+
+// logLine is an io.Writer that hands each write to fn.
+type logLine func(string)
+
+func (f logLine) Write(p []byte) (int, error) {
+	f(string(p))
+	return len(p), nil
 }
 
 func (a *App) stopTray() { systray.Quit() }
@@ -253,4 +290,12 @@ func trayProfiles(list []store.Profile, selected int64) []store.Profile {
 		}
 	}
 	return out
+}
+
+// trayReady reports whether the tray icon exists, so that the window can be
+// hidden to it.
+func (a *App) trayReady() bool {
+	a.tray.mu.Lock()
+	defer a.tray.mu.Unlock()
+	return a.tray.ready
 }

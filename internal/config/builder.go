@@ -10,6 +10,7 @@ import (
 	"nextbox/internal/i18n"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -59,12 +60,23 @@ func Build(in Input) (map[string]any, error) {
 		return nil, errors.New(i18n.T("请先选择一个节点"))
 	}
 	entries := Entries(s)
-	if missing := MissingRuleSets(in.RuleSetDir, RuleSets(entries)); len(missing) > 0 {
+	// resolving names for the IP steps needs the list of foreign sites (see
+	// ForeignSites); without it they are not resolved, as before 2.3
+	resolve := needsResolve(entries)
+	needed := RuleSets(entries)
+	if resolve {
+		needed = append(needed, ForeignSites)
+	}
+	if missing := MissingRuleSets(in.RuleSetDir, needed); len(missing) > 0 {
 		if !in.SkipMissingRuleSets {
 			return nil, &MissingRuleSetsError{Names: missing}
 		}
 		entries = withoutSets(entries, missing)
+		if slices.Contains(missing, ForeignSites) {
+			resolve = false
+		}
 	}
+	resolve = resolve && needsResolve(entries)
 
 	// ---- outbounds ----
 	outbounds := []any{}
@@ -214,7 +226,7 @@ func Build(in Input) (map[string]any, error) {
 				r["server"] = TagDNSDirect
 			case fakeIP:
 				r["server"] = TagFakeIP
-				r["query_type"] = []string{"A", "AAAA"}
+				setField(r, "query_type", []string{"A", "AAAA"})
 			default:
 				r["server"] = TagDNSRemote
 			}
@@ -292,12 +304,25 @@ func Build(in Input) (map[string]any, error) {
 		// A connection to a domain name (the system proxy always gets
 		// those) has no IP to compare with IP ranges and IP rule-sets until
 		// the name is resolved: without this, "bypass mainland China" only
-		// knew the domains of geosite-cn. The direct DNS answers the way the
-		// site is reached from here; connections to IP addresses are left
-		// as they are.
-		if !resolved && e.hasIP() {
+		// knew the domains of geosite-cn. Connections to IP addresses are
+		// left as they are.
+		//
+		// The core then sends the connection to the resolved address, also
+		// through the proxy. Known foreign sites are therefore not resolved
+		// here (a wrong answer of the direct DNS for a blocked site sent the
+		// proxy to a wrong address): they keep their names. Settings.ResolveDNS
+		// picks the server: the direct DNS answers the way a site is reached
+		// from here (Chinese CDNs), the remote one is never tampered with.
+		if resolve && !resolved && e.hasIP() {
 			resolved = true
-			routeRules = append(routeRules, map[string]any{"action": "resolve", "server": TagDNSDirect})
+			server := TagDNSDirect
+			if s.ResolveDNS == store.ResolveRemote && dnsFinal == TagDNSRemote {
+				server = TagDNSRemote
+			}
+			routeRules = append(routeRules, map[string]any{
+				"rule_set": []string{ForeignSites}, "invert": true,
+				"action": "resolve", "server": server,
+			})
 		}
 		if ob := outboundOf(e.Target); ob == "" {
 			r["action"] = "reject"
@@ -311,7 +336,11 @@ func Build(in Input) (map[string]any, error) {
 		routeRules = append(routeRules, r)
 	}
 	ruleSets := []any{}
-	for _, name := range RuleSets(entries) {
+	setNames := RuleSets(entries)
+	if resolved {
+		setNames = append(setNames, ForeignSites)
+	}
+	for _, name := range setNames {
 		ruleSets = append(ruleSets, map[string]any{
 			"type":   "local",
 			"tag":    name,

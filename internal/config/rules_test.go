@@ -15,7 +15,7 @@ import (
 func TestRulesAndPolicies(t *testing.T) {
 	bin := singBox(t)
 	ruleDir := t.TempDir()
-	for _, name := range []string{"geosite-cn", "geoip-cn"} {
+	for _, name := range []string{"geosite-cn", "geoip-cn", ForeignSites} {
 		if err := ruleset.Install(name, filepath.Join(ruleDir, name+".srs")); err != nil {
 			t.Fatal(err)
 		}
@@ -150,7 +150,7 @@ func stepTarget(cfg map[string]any, tag string) string {
 func TestRuleSet(t *testing.T) {
 	bin := singBox(t)
 	ruleDir := t.TempDir()
-	for _, name := range []string{"geosite-cn", "geoip-cn"} {
+	for _, name := range []string{"geosite-cn", "geoip-cn", ForeignSites} {
 		if err := ruleset.Install(name, filepath.Join(ruleDir, name+".srs")); err != nil {
 			t.Fatal(err)
 		}

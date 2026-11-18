@@ -164,12 +164,14 @@ func (a *App) autoConnect() {
 }
 
 // beforeClose hides the window to the tray instead of quitting, unless the
-// user turned that off or asked to quit explicitly.
+// user turned that off or asked to quit explicitly. Without a tray icon (it could not be
+// created) a hidden window could only be ended in the Task Manager, so the
+// window closes NextBox then.
 func (a *App) beforeClose(ctx context.Context) bool {
 	a.mu.Lock()
 	quitting := a.quitting
 	a.mu.Unlock()
-	if !quitting && a.store != nil && a.store.Settings().CloseToTray {
+	if !quitting && a.store != nil && a.store.Settings().CloseToTray && a.trayReady() {
 		wruntime.WindowHide(a.ctx)
 		return true
 	}
@@ -381,7 +383,7 @@ func (a *App) Quit() {
 
 // CloseWindow is the title bar close button.
 func (a *App) CloseWindow() {
-	if a.store.Settings().CloseToTray {
+	if a.store.Settings().CloseToTray && a.trayReady() {
 		wruntime.WindowHide(a.ctx)
 		return
 	}
