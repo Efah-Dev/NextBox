@@ -155,6 +155,7 @@ export interface ExitInfo {
   org?: string
   latency: number
   error?: string
+  failed?: 'test' | 'trace' // the request that failed: the test URL or Cloudflare
   at: number
 }
 

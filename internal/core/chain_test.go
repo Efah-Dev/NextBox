@@ -48,8 +48,9 @@ func TestChainCarriesTraffic(t *testing.T) {
 	}))
 	defer target.Close()
 	oldTrace := geo.TraceURL
-	geo.TraceURL = target.URL + "/trace"
-	defer func() { geo.TraceURL = oldTrace }()
+	oldFallback := geo.TraceFallbackURL
+	geo.TraceURL, geo.TraceFallbackURL = target.URL+"/trace", ""
+	defer func() { geo.TraceURL, geo.TraceFallbackURL = oldTrace, oldFallback }()
 
 	entryPort, entryAPI := relay(t, bin)
 	exitPort, exitAPI := relay(t, bin)

@@ -174,21 +174,47 @@ func measureRTT(ctx context.Context, proxy *url.URL, testURL string, timeout tim
 func ProbeExit(ctx context.Context, proxy *url.URL, testURL string, timeout time.Duration) (int, geo.Location, error) {
 	ms, err := measureRTT(ctx, proxy, testURL, timeout)
 	if err != nil {
-		return -1, geo.Location{}, err
+		return -1, geo.Location{}, &ProbeError{ProbeStepTest, err}
 	}
 	loc, err := locate(ctx, proxy, timeout)
 	if err != nil {
-		return ms, geo.Location{}, simplifyErr(err)
+		return ms, geo.Location{}, &ProbeError{ProbeStepTrace, simplifyErr(err)}
 	}
 	return ms, loc, nil
 }
 
-// locate asks where requests sent through the proxy come from.
+// locate asks where requests sent through the proxy come from. Each try is
+// a new connection through the node; when the first does not answer (a slow
+// handshake, a lost packet) the trace is asked once more at Cloudflare's DNS
+// address, and the first error is reported if that fails too.
 func locate(ctx context.Context, proxy *url.URL, timeout time.Duration) (geo.Location, error) {
 	tr := &http.Transport{Proxy: http.ProxyURL(proxy), ForceAttemptHTTP2: true, TLSHandshakeTimeout: timeout}
 	defer tr.CloseIdleConnections()
-	return geo.Trace(ctx, &http.Client{Transport: tr, Timeout: timeout})
+	client := &http.Client{Transport: tr, Timeout: timeout}
+	loc, err := geo.Trace(ctx, client)
+	if err == nil || geo.TraceFallbackURL == "" || ctx.Err() != nil {
+		return loc, err
+	}
+	if l, err2 := geo.TraceAt(ctx, client, geo.TraceFallbackURL); err2 == nil {
+		return l, nil
+	}
+	return loc, err
 }
+
+// Which request of ProbeExit failed.
+const (
+	ProbeStepTest  = "test"  // the test URL (Settings.TestURL)
+	ProbeStepTrace = "trace" // the Cloudflare trace
+)
+
+// ProbeError is a failed ProbeExit: Step says which request it was.
+type ProbeError struct {
+	Step string
+	Err  error
+}
+
+func (e *ProbeError) Error() string { return e.Err.Error() }
+func (e *ProbeError) Unwrap() error { return e.Err }
 
 // ExitNetwork asks, through the proxy, which network ip belongs to.
 func ExitNetwork(ctx context.Context, proxy *url.URL, ip string, timeout time.Duration) (geo.Network, error) {

@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"time"
 
@@ -24,10 +25,18 @@ type ExitInfo struct {
 	Org      string `json:"org,omitempty"`
 	Latency  int    `json:"latency"` // ms; -1 failed
 	Error    string `json:"error,omitempty"`
-	At       int64  `json:"at"` // unix ms
+	// Failed is the request that failed: core.ProbeStepTest (the test URL)
+	// or core.ProbeStepTrace (Cloudflare).
+	Failed string `json:"failed,omitempty"`
+	At     int64  `json:"at"` // unix ms
 }
 
-const exitRecheck = 5 * time.Minute
+// A check is repeated every few minutes, and sooner after a failed one
+// (a single slow connection should not show a failure for minutes).
+const (
+	exitRecheck      = 5 * time.Minute
+	exitRetryOnError = 30 * time.Second
+)
 
 func (a *App) GetExitInfo() ExitInfo {
 	a.mu.Lock()
@@ -50,43 +59,48 @@ func (a *App) setExit(e ExitInfo) {
 
 // checkExit asks Cloudflare, through the local proxy port, which address and
 // country requests come from, and how long a request takes.
-func (a *App) checkExit() {
+func (a *App) checkExit() (ok bool) {
 	a.exitMu.Lock()
 	defer a.exitMu.Unlock()
 	a.mu.Lock()
 	proc, node := a.proc, a.runningID
 	a.mu.Unlock()
 	if proc == nil {
-		return
+		return true
 	}
 	a.setExit(ExitInfo{NodeID: node, Checking: true})
 	s := a.store.Settings()
 	proxy := &url.URL{Scheme: "http", Host: proxyAddr(s)}
 	timeout := time.Duration(max(s.TestTimeout, 3000)) * time.Millisecond
-	ctx, cancel := context.WithTimeout(a.ctx, 2*timeout+5*time.Second)
+	// two requests to the test URL, the trace and its fallback, then the ASN
+	ctx, cancel := context.WithTimeout(a.ctx, 4*timeout+5*time.Second)
 	defer cancel()
 	ms, loc, err := core.ProbeExit(ctx, proxy, s.TestURL, timeout)
 	e := ExitInfo{NodeID: node, Latency: ms, IP: loc.IP, Country: loc.Country, At: time.Now().UnixMilli()}
 	if err != nil {
-		e.Latency, e.Error = -1, err.Error()
+		e.Latency, e.Error, e.Failed = -1, err.Error(), core.ProbeStepTest
+		var pe *core.ProbeError
+		if errors.As(err, &pe) {
+			e.Failed = pe.Step
+		}
 	}
 	// the node may have changed or the core stopped meanwhile
 	a.mu.Lock()
 	stale := a.proc != proc || a.runningID != node
 	a.mu.Unlock()
 	if stale {
-		return
+		return true
 	}
 	a.setExit(e)
 	if e.IP == "" {
-		return
+		return e.Error == ""
 	}
 	// then the network (ASN) of the exit IP, which is shown once known
 	n, ok := a.cachedNetwork(e.IP)
 	if !ok {
 		var err error
 		if n, err = core.ExitNetwork(ctx, proxy, e.IP, timeout); err != nil {
-			return // the IP is shown without it
+			return true // the IP is shown without it
 		}
 		a.cacheNetwork(e.IP, n)
 	}
@@ -97,6 +111,7 @@ func (a *App) checkExit() {
 		e.ASN, e.Org = n.ASN, n.Org
 		a.setExit(e)
 	}
+	return true
 }
 
 // ASNs of exit IPs, kept for a day.
@@ -130,11 +145,14 @@ func (a *App) cacheNetwork(ip string, n geo.Network) {
 func (a *App) exitLoop(ctx context.Context) {
 	time.Sleep(500 * time.Millisecond) // let the system proxy settle
 	for {
-		a.checkExit()
+		wait := exitRecheck
+		if !a.checkExit() {
+			wait = exitRetryOnError
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(exitRecheck):
+		case <-time.After(wait):
 		}
 	}
 }

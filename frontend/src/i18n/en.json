@@ -359,6 +359,7 @@
   "新建链式代理": "New chain proxy",
   "无法按服务器 IP 判断地区: ": "Cannot look up countries by server IP: ",
   "无法解密：配置是在另一台电脑或另一个 Windows 账户下加密的，请在原来的电脑上导出备份再导入": "Cannot decrypt: the data was encrypted on another PC or Windows account. Export a backup there and import it here.",
+  "无法通过节点访问测速地址：{0}。点击重新检测": "Could not reach the test URL through the node: {0}. Click to check again",
   "无法通过节点访问 Cloudflare：{0}。点击重新检测": "Could not reach Cloudflare through the node: {0}. Click to check again",
   "无需密码，开机自启照常工作。只有这台电脑的当前账户能打开；换电脑前先导出备份。": "No password, and starting with Windows keeps working. Only this Windows account on this PC can open it; export a backup before moving to another PC.",
   "日志与诊断": "Logs & diagnostics",

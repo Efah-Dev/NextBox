@@ -20,6 +20,10 @@ import (
 // it at a local server.
 var TraceURL = "https://www.cloudflare.com/cdn-cgi/trace"
 
+// TraceFallbackURL is asked when TraceURL does not answer: the same trace
+// at Cloudflare's DNS address, which needs no name lookup on the node.
+var TraceFallbackURL = "https://1.1.1.1/cdn-cgi/trace"
+
 // DBURLs are the places the sing-geoip database is downloaded from, tried in
 // order (mirrors first: GitHub is not reachable everywhere).
 var DBURLs = []string{
@@ -37,7 +41,12 @@ type Location struct {
 // Trace asks TraceURL where the client's requests come from. Send it through
 // a node to learn the node's exit IP.
 func Trace(ctx context.Context, client *http.Client) (Location, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, TraceURL, nil)
+	return TraceAt(ctx, client, TraceURL)
+}
+
+// TraceAt asks the Cloudflare trace at rawURL.
+func TraceAt(ctx context.Context, client *http.Client, rawURL string) (Location, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return Location{}, err
 	}
