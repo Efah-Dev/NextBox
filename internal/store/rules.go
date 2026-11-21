@@ -245,6 +245,9 @@ func NormalizeValue(kind, v string) string {
 				v += "/128"
 			}
 		}
+		if _, _, err := net.ParseCIDR(v); err != nil {
+			return "" // not an IP range, e.g. a bare "/32" left by an empty field
+		}
 	}
 	return v
 }
