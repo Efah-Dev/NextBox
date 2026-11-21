@@ -10,8 +10,9 @@ import Flag from '../components/Flag.vue'
 import ExitPill from '../components/ExitPill.vue'
 import { bareName, countryTitle, nodeCountry } from '../country'
 import { api, rt } from '../api'
-import { currentGroup, nodesAdded, patchSettings, selectedProfile, settings, state } from '../state'
-import { confirmDialog, formatBytes, formatDuration, formatSpeed, groupName, latencyClass, latencyText, run, serverOf, toast, typeName } from '../util'
+import { askNewClash } from '../clashImport'
+import { currentGroup, nodesAdded, patchSettings, selectedProfile, settings, sortAfterTest, state } from '../state'
+import { formatBytes, formatDuration, formatSpeed, groupName, latencyClass, latencyText, run, serverOf, toast, typeName } from '../util'
 
 const busy = ref(false)
 const heroCountry = computed(() => (selectedProfile.value ? nodeCountry(selectedProfile.value, settings.value) : { code: '', how: '' as const }))
@@ -87,24 +88,17 @@ async function importClipboard() {
   if (await run(() => api.importText(text, state.app!.currentGroupId), (m) => m)) nodesAdded()
 }
 
+// the nodes keep their order; new ones are added at the end
 async function updateAll() {
-  const reordered = (state.app?.groups ?? []).filter((g) => g.url && g.manualOrder)
-  if (reordered.length) {
-    const names = reordered.map((g) => groupName(g)).join('、')
-    const go = await confirmDialog(
-      t('节点顺序已调整过'),
-      t('订阅“{0}”的节点顺序被手动调整过。更新后会恢复为订阅里的顺序，确定更新吗？', names),
-      false,
-      t('更新'),
-    )
-    if (!go) return
-  }
-  run(() => api.updateAllSubscriptions(), (m) => m)
+  const ok = await run(() => api.updateAllSubscriptions(), (m) => m)
+  if (ok !== undefined) askNewClash((state.app?.groups ?? []).map((g) => g.id))
 }
 
-function testCurrentGroup() {
+async function testCurrentGroup() {
   const ids = state.profiles.map((p) => p.id)
-  run(() => api.testLatency(ids, 'url'), t('开始测速：') + groupName(currentGroup.value))
+  const sort = await sortAfterTest(ids.length)
+  if (sort === null) return
+  run(() => api.testLatency(ids, 'url', sort), t('开始测速：') + groupName(currentGroup.value))
   state.page = 'nodes'
 }
 

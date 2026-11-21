@@ -1,6 +1,6 @@
 // A stand-in for the Go backend, used only to render the README hero image
 // (see render.mjs). It is injected in front of the real frontend bundle and
-// provides window.go.main.App and window.runtime with made-up data.
+// provides window.go.app.App and window.runtime with made-up data.
 //
 // URL parameters: lang=en, theme=dark, page=nodes|connections|logs|settings
 (() => {
@@ -39,7 +39,7 @@
   }))
 
   const state = {
-    version: '2.2.0', running: true, runningId: 1, selectedId: 1, currentGroupId: 1,
+    version: '2.4.0', running: true, runningId: 1, selectedId: 1, currentGroupId: 1,
     startedAt: now - (42 * 60 + 18) * 1000, testing: false, proxyMode: 'system', elevated: false,
     coreFound: true, corePath: 'core\\sing-box.exe', dataDir: 'config', settings,
     groups: [
@@ -63,14 +63,28 @@
     '21:30:12 INFO outbound/direct[direct]: outbound connection to www.example.cn:443',
   ]
 
-  const connection = (i) => ({
-    id: String(i), upload: 1200 * (i + 1), download: 86000 * (i + 1), start: new Date(now - i * 9000).toISOString(),
-    chains: i % 4 ? ['Tokyo 01', 'proxy'] : ['direct'], rule: i % 4 ? 'final' : 'rule_set=geosite-cn => route(direct)',
-    metadata: {
-      network: 'tcp', type: 'mixed', sourceIP: '127.0.0.1', sourcePort: String(50000 + i),
-      destinationIP: '', destinationPort: '443', host: i % 4 ? `cdn${i}.example.com` : `www${i}.example.cn`, processPath: '',
-    },
-  })
+  // what each connection matched and where it left (the connections page)
+  const kinds = [
+    ['api.example-ai.com', 'chrome.exe', { source: 'scene', scene: 'ai' }, ['Tokyo 01', 'nb-step:scene:ai']],
+    ['video.example.net', 'msedge.exe', { source: 'rule', kind: 'set', name: tr('流媒体', 'Streaming') }, ['Hong Kong 01', 'nb-step:rule:0']],
+    ['www.example.cn', 'msedge.exe', { source: 'scene', scene: 'cn' }, ['direct', 'nb-step:scene:cn']],
+    ['cdn.example.com', 'chrome.exe', { source: 'final' }, ['Tokyo 01', 'proxy']],
+    ['192.168.1.20', 'explorer.exe', { source: 'private' }, ['direct']],
+    ['dl.example-game.com', 'Steam.exe', { source: 'rule', kind: 'process', values: ['Steam.exe'] }, ['direct', 'nb-step:rule:1']],
+  ]
+  const connection = (i) => {
+    const [host, proc, match, chains] = kinds[i % kinds.length]
+    const ip = /^[\d.]+$/.test(host)
+    return {
+      id: String(i), upload: 1200 * (i + 1), download: 86000 * (23 - i), start: new Date(now - i * 9000).toISOString(),
+      chains, rule: '', match,
+      metadata: {
+        network: i % 5 === 4 ? 'udp' : 'tcp', type: 'mixed', sourceIP: '127.0.0.1', sourcePort: String(50000 + i),
+        destinationIP: ip ? host : '', destinationPort: ip ? '445' : '443', host: ip ? '' : host,
+        processPath: 'C:\\Program Files\\App\\' + proc,
+      },
+    }
+  }
 
   const app = {
     GetState: () => state,
@@ -86,10 +100,11 @@
       tags: 'with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api', revision: '', cgo: 'disabled',
     }),
     GetLogFilesInfo: () => ({ count: 0, bytes: 0, dir: 'config\\logs' }),
+    GetExitInfo: () => ({ nodeId: 1, checking: false, ip: '103.151.12.21', country: 'JP', asn: 906, org: 'DMIT Cloud Services', latency: 48, at: now }),
   }
   // every other call succeeds and does nothing
   const handler = { get: (target, name) => (...args) => Promise.resolve(target[name]?.(...args)) }
-  window.go = { main: { App: new Proxy(app, handler) } }
+  window.go = { app: { App: new Proxy(app, handler) } }
 
   const listeners = {}
   const emit = (name, data) => (listeners[name] ?? []).forEach((cb) => cb(data))

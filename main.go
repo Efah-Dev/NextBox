@@ -1,3 +1,7 @@
+// NextBox for Windows: the program starts here; everything else is in
+// internal/app (the window, tray and the functions the UI calls) and the
+// other packages under internal/. This file keeps what must sit next to the
+// frontend folder: the built UI and the files shared with it, embedded.
 package main
 
 import (
@@ -9,14 +13,10 @@ import (
 	"strings"
 	"time"
 
+	"nextbox/internal/app"
 	"nextbox/internal/geo"
 	"nextbox/internal/i18n"
 	"nextbox/internal/sys"
-
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 //go:generate go run ./cmd/genicon
@@ -37,13 +37,11 @@ var i18nTW []byte
 //go:embed frontend/src/places.json
 var placesJSON []byte
 
-const Version = "2.3.2"
-
 func main() {
 	// run as administrator by NextBox to install or remove its service
 	for _, arg := range os.Args[1:] {
 		if arg == "--service-install" || arg == "--service-uninstall" {
-			os.Exit(serviceHelper(os.Args[1:]))
+			os.Exit(app.ServiceHelper(os.Args[1:]))
 		}
 	}
 	startMinimised := false
@@ -67,38 +65,10 @@ func main() {
 	if err := i18n.Init(i18nEN, i18nTW); err != nil {
 		log.Println("i18n:", err)
 	}
-
-	app := NewApp()
-	app.autoStarted = startMinimised
 	if err := geo.LoadPlaces(placesJSON); err != nil {
 		log.Println("places:", err)
 	}
-
-	err := wails.Run(&options.App{
-		Title:            "NextBox",
-		Width:            1080,
-		Height:           680,
-		MinWidth:         920,
-		MinHeight:        620,
-		Frameless:        true,
-		StartHidden:      startMinimised, // autostart: stay in the tray
-		BackgroundColour: &options.RGBA{R: 250, G: 241, B: 246, A: 255},
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		OnStartup:     app.startup,
-		OnBeforeClose: app.beforeClose,
-		OnShutdown:    app.shutdown,
-		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId:               "nextbox-7d0f3c4e-single-instance",
-			OnSecondInstanceLaunch: app.onSecondInstance,
-		},
-		Bind: []interface{}{app},
-		Windows: &windows.Options{
-			Theme: windows.SystemDefault,
-		},
-	})
-	if err != nil {
+	if err := app.Run(assets, startMinimised); err != nil {
 		log.Fatal(err)
 	}
 }

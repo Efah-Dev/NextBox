@@ -76,6 +76,39 @@ type Group struct {
 	// ManualOrder is set when the nodes of a subscription were reordered by
 	// hand (dragged or sorted), so that an update can ask before resetting it.
 	ManualOrder bool `json:"manualOrder,omitempty"`
+	// Clash says which parts of a Clash subscription besides its nodes are
+	// taken over on every update; nil until the user was asked.
+	Clash *ClashImport `json:"clash,omitempty"`
+	// DNS is the subscription's own DNS (订阅专属 DNS); nil = the global one.
+	DNS *GroupDNS `json:"dns,omitempty"`
+	// SuggestedDNS is the DNS the subscription names (Clash nameserver,
+	// sing-box dns.servers), as of its last update; nil when it names none
+	// but public ones. Settings → DNS offers it.
+	SuggestedDNS *GroupDNS `json:"suggestedDns,omitempty"`
+}
+
+// GroupDNS is the DNS of one subscription, used only for its own nodes: other
+// subscriptions and the global settings are not affected.
+type GroupDNS struct {
+	// Remote replaces Settings.RemoteDNS while a node of the subscription is
+	// the connected one.
+	Remote string `json:"remote,omitempty"`
+	// Resolver looks up the server names of its nodes (directly), instead of
+	// Settings.DirectDNS.
+	Resolver string `json:"resolver,omitempty"`
+}
+
+// Empty reports whether d sets nothing.
+func (d *GroupDNS) Empty() bool { return d == nil || (d.Remote == "" && d.Resolver == "") }
+
+// ClashImport chooses the parts of a Clash subscription that are converted.
+type ClashImport struct {
+	Groups bool `json:"groups"` // proxy-groups → policy groups (分组代理)
+	Rules  bool `json:"rules"`  // rules → rule sets, one per target
+	DNS    bool `json:"dns"`    // nameserver-policy and hosts → DNS overrides
+	// SubDNS takes the subscription's own DNS servers (Clash nameserver /
+	// proxy-server-nameserver, sing-box dns.servers) as Group.DNS.
+	SubDNS bool `json:"subDns"`
 }
 
 // SubscriptionInfo is parsed from the "subscription-userinfo" response header.
@@ -84,6 +117,23 @@ type SubscriptionInfo struct {
 	Download int64 `json:"download"`
 	Total    int64 `json:"total"`
 	Expire   int64 `json:"expire"`
+}
+
+// DNSOverride decides the addresses of some domains: with Server, a DNS
+// server of its own answers them (for example the DNS of a provider that
+// unlocks streaming sites); with IPs, they have fixed addresses, like a hosts
+// file. Server and IPs are not used together.
+type DNSOverride struct {
+	// Domains are domain suffixes with Server (a domain and its
+	// subdomains), full names with IPs.
+	Domains  []string `json:"domains"`
+	Server   string   `json:"server,omitempty"`   // same forms as RemoteDNS
+	ViaProxy bool     `json:"viaProxy,omitempty"` // Server is asked through the proxy
+	IPs      []string `json:"ips,omitempty"`
+	Disabled bool     `json:"disabled,omitempty"`
+	// From is the subscription (group ID) whose Clash DNS settings made
+	// this override; an update of the subscription replaces it.
+	From int64 `json:"from,omitempty"`
 }
 
 type Settings struct {
@@ -145,14 +195,20 @@ type Settings struct {
 	// are never resolved for this (see config.ForeignSites).
 	ResolveDNS string `json:"bypassDns,omitempty"`
 
-	RemoteDNS  string `json:"remoteDns"`
-	DirectDNS  string `json:"directDns"`
-	EnableIPv6 bool   `json:"enableIpv6"`
-	Sniff      bool   `json:"sniff"`
+	RemoteDNS string `json:"remoteDns"`
+	DirectDNS string `json:"directDns"`
+	// DNSOverrides (DNS 复写) decide the addresses of some domains before
+	// the DNS servers above.
+	DNSOverrides []DNSOverride `json:"dnsOverrides,omitempty"`
+	EnableIPv6   bool          `json:"enableIpv6"`
+	Sniff        bool          `json:"sniff"`
 
 	TestURL         string `json:"testUrl"`
 	TestTimeout     int    `json:"testTimeout"` // ms
 	TestConcurrency int    `json:"testConcurrency"`
+	// SortAfterTest is what happens to the order of a group after a speed
+	// test of it: SortAsk ("", the app asks), SortByLatency or SortNone.
+	SortAfterTest string `json:"sortAfterTest"`
 
 	SubUserAgent     string `json:"subUserAgent"`
 	SubUpdateByProxy bool   `json:"subUpdateByProxy"`
@@ -183,6 +239,13 @@ const (
 	// from RemoteRuleSetMirror.
 	LocalRuleSetMirror  = "local"
 	RemoteRuleSetMirror = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-{kind}@rule-set/{name}.srs"
+)
+
+// Settings.SortAfterTest values.
+const (
+	SortAsk       = ""
+	SortByLatency = "latency"
+	SortNone      = "none"
 )
 
 // Settings.ResolveDNS values.
@@ -219,7 +282,7 @@ func DefaultSettings() Settings {
 		TestURL:          "https://www.google.com/generate_204",
 		TestTimeout:      5000,
 		TestConcurrency:  16,
-		SubUserAgent:     "NextBox/2.3.2 (sing-box; ClashMeta compatible)",
+		SubUserAgent:     "NextBox/2.4.0 (sing-box; ClashMeta compatible)",
 		SubUpdateHours:   12,
 		CountrySource:    CountryExit,
 		LogLevel:         "info",

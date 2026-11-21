@@ -1,6 +1,16 @@
 import { t } from './i18n'
-// Thin typed wrapper over the Wails bindings (window.go.main.App) and runtime.
+// Thin typed wrapper over the Wails bindings (window.go.app.App, the App of
+// internal/app) and runtime.
 // Using window.* directly keeps the frontend independent of generated files.
+
+/** DNS 复写: domains answered by a DNS server of their own, or with fixed addresses. */
+export interface DnsOverride {
+  domains: string[] // suffixes with server, full names with ips
+  server?: string
+  viaProxy?: boolean
+  ips?: string[]
+  disabled?: boolean
+}
 
 export interface Settings {
   theme: 'auto' | 'light' | 'dark'
@@ -39,11 +49,13 @@ export interface Settings {
   bypassDns?: string
   remoteDns: string
   directDns: string
+  dnsOverrides?: DnsOverride[]
   enableIpv6: boolean
   sniff: boolean
   testUrl: string
   testTimeout: number
   testConcurrency: number
+  sortAfterTest: '' | 'latency' | 'none' // after a speed test of a group: ask, sort by latency, keep the order
   subUserAgent: string
   subUpdateByProxy: boolean
   subAutoUpdate: boolean
@@ -222,6 +234,31 @@ export interface Group {
   default?: boolean
   /** the nodes of this subscription were reordered by hand */
   manualOrder?: boolean
+  /** the parts of a Clash subscription taken over on updates; unset until asked */
+  clash?: ClashImport
+  /** the subscription's own DNS (订阅专属 DNS) */
+  dns?: GroupDNS
+  /** the DNS the subscription names, as of its last update */
+  suggestedDns?: GroupDNS
+}
+
+export interface GroupDNS {
+  remote?: string
+  resolver?: string
+}
+
+export interface ClashImport {
+  groups: boolean
+  rules: boolean
+  dns: boolean
+  subDns: boolean
+}
+
+/** What the Clash parts of a subscription would make (the dialog that asks). */
+export interface ClashInfo {
+  nodes: number
+  preview: { groups: string[] | null; rules: number; ruleTotal: number; sets: number; dns: number; skipped: string[] | null; subDns: GroupDNS | null }
+  current: ClashImport | null
 }
 
 export type Outbound = Record<string, any>
@@ -391,7 +428,7 @@ export interface LatencyResult {
 const w = window as any
 
 function call<T>(name: string, ...args: unknown[]): Promise<T> {
-  const app = w.go?.main?.App
+  const app = w.go?.app?.App
   if (!app) return Promise.reject(new Error(t('后端未就绪：请使用 wails dev / wails build 运行')))
   return app[name](...args).catch((e: unknown) => {
     throw new Error(typeof e === 'string' ? e : (e as any)?.message ?? String(e))
@@ -410,6 +447,10 @@ export const api = {
   editGroup: (g: Group) => call<void>('EditGroup', g),
   deleteGroup: (id: number) => call<void>('DeleteGroup', id),
   updateSubscription: (id: number) => call<string>('UpdateSubscription', id),
+  clashPreview: (id: number, fetch = false) => call<ClashInfo | null>('ClashPreview', id, fetch),
+  applyClash: (id: number, opt: ClashImport) => call<string>('ApplyClash', id, opt),
+  setGroupDNS: (id: number, remote: string, resolver: string) => call<void>('SetGroupDNS', id, remote, resolver),
+  useSubscriptionDNS: (id: number, on: boolean) => call<void>('UseSubscriptionDNS', id, on),
   updateAllSubscriptions: () => call<string>('UpdateAllSubscriptions'),
 
   getProfiles: (groupId: number) => call<Profile[]>('GetProfiles', groupId),
@@ -428,7 +469,7 @@ export const api = {
   exportLinks: (ids: number[]) => call<string>('ExportLinks', ids),
   selectProfile: (id: number) => call<void>('SelectProfile', id),
 
-  testLatency: (ids: number[], mode: 'url' | 'tcp') => call<void>('TestLatency', ids, mode),
+  testLatency: (ids: number[], mode: 'url' | 'tcp', sortAfter = false) => call<void>('TestLatency', ids, mode, sortAfter),
   stopTest: () => call<void>('StopTest'),
 
   getConnections: () => call<Connections>('GetConnections'),
@@ -443,6 +484,7 @@ export const api = {
 
   updateRuleSets: () => call<string>('UpdateRuleSets'),
   testRoute: (input: string) => call<RouteMatch>('TestRoute', input),
+  rootDomain: (host: string) => call<string>('RootDomain', host),
   checkRuleSetURL: (url: string) => call<void>('CheckRuleSetURL', url),
   runningPrograms: () => call<RunningProgram[]>('RunningPrograms'),
   pickProgram: () => call<string>('PickProgram'),

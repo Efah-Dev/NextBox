@@ -15,7 +15,9 @@ function finish(ok: boolean) {
   const resolve = dialog.resolve
   dialog.open = false
   dialog.resolve = undefined
-  resolve?.(ok ? (dialog.inputs ?? []).map((i) => i.value) : null)
+  if (!ok) return resolve?.(null)
+  if (dialog.choices) return resolve?.([dialog.choice ?? '', dialog.remember ? '1' : ''])
+  resolve?.((dialog.inputs ?? []).map((i) => i.value))
 }
 </script>
 
@@ -32,6 +34,19 @@ function finish(ok: boolean) {
         @keydown.enter="finish(true)"
       />
       <span v-if="f.warn?.(f.value)" class="warning">⚠ {{ f.warn(f.value) }}</span>
+    </label>
+    <div v-if="dialog.choices" class="choices" role="radiogroup">
+      <label v-for="c in dialog.choices" :key="c.value" class="choice" :class="{ on: dialog.choice === c.value }">
+        <input v-model="dialog.choice" type="radio" :value="c.value" />
+        <span class="choice-text">
+          <b>{{ c.label }}</b>
+          <span v-if="c.hint" class="faint">{{ c.hint }}</span>
+        </span>
+      </label>
+    </div>
+    <label v-if="dialog.remember !== undefined" class="remember">
+      <input v-model="dialog.remember" type="checkbox" />
+      <span>{{ dialog.rememberText }}</span>
     </label>
     <template #footer>
       <button class="btn" @click="finish(false)">{{ t('取消') }}</button>
@@ -61,6 +76,49 @@ function finish(ok: boolean) {
 }
 .input.warned:focus {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--mid) 22%, transparent);
+}
+.choices {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+.choice {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.choice.on {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+.choice input {
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+.choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.choice-text b {
+  font-size: 13px;
+}
+.remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.remember input {
+  accent-color: var(--accent);
 }
 .warning {
   font-size: 12px;

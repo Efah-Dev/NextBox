@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { t } from '../i18n'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import ContextMenu, { type CtxItem } from '../components/ContextMenu.vue'
+import { addNewSet, addRule, addToSet, connMatches, type ConnMatch } from '../connRules'
 import Icon from '../components/Icon.vue'
-import { api, type Connection } from '../api'
+import { api, rt, type Connection } from '../api'
 import { state } from '../state'
-import { formatBytes, formatDuration, formatSpeed, run } from '../util'
+import { formatBytes, formatDuration, formatSpeed, run, toast } from '../util'
 import Flag from '../components/Flag.vue'
-import { guessCountry } from '../country'
-import { ruleTitle, sceneInfo } from '../policies'
+import { bareName, guessCountry } from '../country'
+import { policies, refreshPolicies, ruleTitle, sceneInfo, targetLabel, targetOptions } from '../policies'
 
 interface Row extends Connection {
   upSpeed: number
@@ -85,8 +87,72 @@ function exitOf(c: Connection): { text: string; code: string; direct: boolean } 
   const hops = [...(c.chains ?? [])].reverse().filter((h) => !h.startsWith('nb-step:') && h !== 'proxy')
   const last = hops[hops.length - 1] ?? ''
   if (last === 'direct' || !hops.length) return { text: t('直连'), code: '', direct: true }
-  return { text: hops.join(' → '), code: guessCountry(last), direct: false }
+  // node names often start with a flag emoji: the flag in front shows it
+  return { text: hops.map(bareName).join(' → '), code: guessCountry(last), direct: false }
 }
+
+// ---- right click: make a rule from a connection
+const menu = ref<{ x: number; y: number; c: Connection; matches: ConnMatch[] } | null>(null)
+const pickedMatch = ref(0)
+
+async function openMenu(e: MouseEvent, c: Connection) {
+  const at = { x: e.clientX, y: e.clientY }
+  if (!policies.loaded) refreshPolicies()
+  const matches = await connMatches(c)
+  pickedMatch.value = 0
+  menu.value = { ...at, c, matches }
+}
+
+const menuItems = computed<CtxItem[]>(() => {
+  const m = menu.value
+  if (!m) return []
+  const c = m.c
+  const name = c.metadata.host || c.metadata.destinationIP
+  const match = m.matches[pickedMatch.value]
+  const rules = state.app?.settings.rules ?? []
+  const sets = rules.map((r, i) => ({ r, i })).filter((x) => x.r.kind === 'set')
+  const items: CtxItem[] = [{ title: true, label: name }]
+  if (match) {
+    items.push({ title: true, label: t('按什么匹配') })
+    m.matches.forEach((x, i) => items.push({ label: x.label, checked: i === pickedMatch.value, keep: true, action: () => (pickedMatch.value = i) }))
+    items.push({ sep: true })
+    items.push({
+      label: t('加入规则集'),
+      icon: 'layers',
+      children: [
+        ...(sets.length
+          ? sets.map((x) => ({ label: x.r.name || t('未命名规则集'), hint: '→ ' + targetLabel(x.r.target), action: () => addToSet(x.i, match) }))
+          : [{ label: t('还没有规则集'), disabled: true }]),
+        { sep: true },
+        { label: t('新建规则集…'), icon: 'plus', action: () => addNewSet(match) },
+      ],
+    })
+    items.push({
+      label: t('新建规则'),
+      icon: 'plus',
+      children: [{ title: true, label: t('去向') }, ...targetOptions().map((o) => ({ label: o.label, action: () => addRule(match, o.value) }))],
+    })
+    items.push({ sep: true })
+  }
+  if (c.metadata.host) {
+    items.push({
+      label: t('在「试一试」里查看路径'),
+      icon: 'route',
+      action: () => {
+        state.routeProbe = c.metadata.host
+        state.settingsSection = 'route'
+        state.page = 'settings'
+      },
+    })
+  }
+  items.push({
+    label: c.metadata.host ? t('复制域名') : t('复制 IP'),
+    icon: 'copy',
+    action: async () => toast((await rt.clipboardSet(name)) ? t('已复制') : t('复制失败'), 'success'),
+  })
+  items.push({ label: t('断开这条连接'), icon: 'close', danger: true, action: () => run(() => api.closeConnection(c.id)) })
+  return items
+})
 
 let timer = 0
 onMounted(() => {
@@ -133,7 +199,7 @@ onUnmounted(() => clearInterval(timer))
           <span />
         </div>
         <div class="tbody scroll">
-          <div v-for="c in filtered" :key="c.id" class="tr">
+          <div v-for="c in filtered" :key="c.id" class="tr" :class="{ picked: menu?.c.id === c.id }" @contextmenu.prevent="openMenu($event, c)">
             <span class="cell-target">
               <span class="net" :class="c.metadata.network">{{ c.metadata.network.toUpperCase() }}</span>
               <span class="ellipsis mono" :title="target(c)">{{ target(c) }}</span>
@@ -145,7 +211,7 @@ onUnmounted(() => clearInterval(timer))
                 <span class="ellipsis">{{ matchLabel(c).text }}</span>
               </span>
               <span class="cell-exit" :class="{ direct: exitOf(c).direct }" :title="exitOf(c).text">
-                <Flag v-if="!exitOf(c).direct" :code="exitOf(c).code" :size="12" />
+                <Flag v-if="!exitOf(c).direct" :code="exitOf(c).code" :size="12" inline />
                 <b class="ellipsis">{{ exitOf(c).text }}</b>
               </span>
             </span>
@@ -166,6 +232,7 @@ onUnmounted(() => clearInterval(timer))
         </div>
       </div>
     </main>
+    <ContextMenu v-if="menu" :items="menuItems" :x="menu.x" :y="menu.y" @close="menu = null" />
   </div>
 </template>
 
@@ -236,8 +303,12 @@ onUnmounted(() => clearInterval(timer))
   border-bottom: 1px solid var(--line);
   transition: background 0.12s;
 }
-.tr:hover {
+.tr:hover,
+.tr.picked {
   background: var(--hover);
+}
+.tr.picked {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .num {
   text-align: center;
@@ -278,7 +349,7 @@ onUnmounted(() => clearInterval(timer))
 .cell-rule,
 .cell-exit {
   display: flex;
-  align-items: center;
+  align-items: baseline; /* the flag on the baseline of the name */
   gap: 6px;
   min-width: 0;
 }

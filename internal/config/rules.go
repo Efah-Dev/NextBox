@@ -362,6 +362,10 @@ func RequiredRuleSets(s store.Settings) []string {
 // ones) with wrong addresses, and the proxy was then sent to those.
 const ForeignSites = "geosite-geolocation-!cn"
 
+// ChinaSites is the rule-set of sites in mainland China (the domains of the
+// "cn" scene).
+const ChinaSites = "geosite-cn"
+
 // needsResolve reports whether a step matches IP addresses, so that domain
 // names are resolved before it (see Build).
 func needsResolve(entries []Entry) bool {

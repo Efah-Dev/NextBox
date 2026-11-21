@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"nextbox/internal/clash"
 	"nextbox/internal/link"
 	"nextbox/internal/store"
 )
@@ -20,6 +21,9 @@ type Result struct {
 	Nodes   []*link.Node
 	Skipped []string // why each skipped entry was rejected
 	Usage   *store.SubscriptionInfo
+	// Clash is what a Clash subscription has besides its proxies (proxy
+	// groups, rules, DNS settings); nil for other formats.
+	Clash *clash.Extras
 }
 
 // Fetch downloads a subscription. proxy is an optional "http://host:port"
@@ -56,10 +60,16 @@ func Fetch(ctx context.Context, rawURL, userAgent, proxy string) (*Result, error
 	if err != nil {
 		return nil, err
 	}
+	// a broken rest does not stop the nodes
+	ex, _ := clash.Parse(string(body))
+	if ex == nil && strings.HasPrefix(strings.TrimSpace(string(body)), "{") {
+		ex = clash.ParseSingBox(string(body))
+	}
 	return &Result{
 		Nodes:   nodes,
 		Skipped: skipped,
 		Usage:   parseUserInfo(resp.Header.Get("subscription-userinfo")),
+		Clash:   ex,
 	}, nil
 }
 

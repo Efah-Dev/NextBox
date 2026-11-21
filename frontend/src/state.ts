@@ -1,7 +1,7 @@
 import { computed, reactive, ref } from 'vue'
 import { api, rt, type AppState, type ExitInfo, type LatencyResult, type LogBatch, type Profile, type Settings, type UpdateInfo } from './api'
 import { t } from './i18n'
-import { toast } from './util'
+import { choiceDialog, toast } from './util'
 
 export type Page = 'home' | 'nodes' | 'connections' | 'logs' | 'settings'
 
@@ -13,6 +13,8 @@ export const state = reactive({
   logs: [] as string[],
   /** Settings section to scroll to when the settings page opens. */
   settingsSection: '',
+  /** A site to try in the route tester when the rules section opens (连接页右键). */
+  routeProbe: '',
   /** Result of the last update check (设置 → 关于). */
   update: null as UpdateInfo | null,
   /** the one-time explanation of how countries are found (CountryNotice) */
@@ -71,6 +73,30 @@ async function refreshSelected() {
 export async function loadProfiles() {
   if (!state.app) return
   state.profiles = await api.getProfiles(state.app.currentGroupId)
+}
+
+/**
+ * Whether a speed test of several nodes should sort their group by latency
+ * afterwards (Settings.sortAfterTest): asks unless a choice was remembered.
+ * null when the test was cancelled.
+ */
+export async function sortAfterTest(count: number): Promise<boolean | null> {
+  if (count < 2) return false
+  const pref = state.app?.settings.sortAfterTest ?? ''
+  if (pref) return pref === 'latency'
+  const r = await choiceDialog(
+    t('测速'),
+    t('测试 {0} 个节点。测完以后：', count),
+    [
+      { value: 'latency', label: t('按延迟排序'), hint: t('最快的在最上面，超时的排到最后') },
+      { value: 'none', label: t('保持现在的顺序'), hint: t('只显示延迟，不动位置') },
+    ],
+    'latency',
+    { confirmText: t('开始测速'), rememberText: t('记住这个选择，下次直接测速（可在设置 → 订阅与测速里修改）') },
+  )
+  if (!r) return null
+  if (r.remember) await patchSettings({ sortAfterTest: r.value as 'latency' | 'none' })
+  return r.value === 'latency'
 }
 
 /** Saves a partial settings change; the backend restarts the core if needed. */

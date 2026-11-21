@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"nextbox/internal/vault"
@@ -647,5 +648,64 @@ func (s *Store) SetPolicySelected(id, node int64) error {
 		return errors.New(i18n.T("分组代理不存在"))
 	}
 	p.Selected = node
+	return s.saveDataLocked()
+}
+
+// GroupDNS lists the subscriptions that have a DNS of their own, by group ID
+// (for config.Input).
+func (s *Store) GroupDNS() map[int64]GroupDNS {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := map[int64]GroupDNS{}
+	for _, g := range s.data.Groups {
+		if !g.DNS.Empty() {
+			out[g.ID] = *g.DNS
+		}
+	}
+	return out
+}
+
+// SetGroupDNS sets a subscription's own DNS by hand (nil or empty: the
+// global DNS again). Updates of the subscription no longer replace it with
+// the one it names.
+func (s *Store) SetGroupDNS(id int64, d *GroupDNS) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g := s.groupLocked(id)
+	if g == nil {
+		return errors.New(i18n.T("分组不存在"))
+	}
+	if d != nil {
+		c := GroupDNS{Remote: strings.TrimSpace(d.Remote), Resolver: strings.TrimSpace(d.Resolver)}
+		d = &c
+	}
+	if d.Empty() {
+		d = nil
+	}
+	g.DNS = d
+	if g.Clash != nil {
+		g.Clash.SubDNS = false
+	}
+	return s.saveDataLocked()
+}
+
+// UseSubscriptionDNS switches a subscription between the DNS it names
+// (SuggestedDNS, kept in step on every update while on) and the global DNS.
+func (s *Store) UseSubscriptionDNS(id int64, on bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g := s.groupLocked(id)
+	if g == nil {
+		return errors.New(i18n.T("分组不存在"))
+	}
+	if g.Clash == nil {
+		g.Clash = &ClashImport{}
+	}
+	g.Clash.SubDNS = on && !g.SuggestedDNS.Empty()
+	g.DNS = nil
+	if g.Clash.SubDNS {
+		d := *g.SuggestedDNS
+		g.DNS = &d
+	}
 	return s.saveDataLocked()
 }

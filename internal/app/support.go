@@ -1,0 +1,294 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"nextbox/internal/clash"
+	"nextbox/internal/i18n"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"nextbox/internal/config"
+	"nextbox/internal/ruleset"
+	"nextbox/internal/store"
+	"nextbox/internal/sys"
+)
+
+// LogBatch is a run of consecutive log lines. Next is the number of lines
+// appended so far, up to and including the last one, so the UI can tell which
+// lines of a batch it already got from GetLogs.
+type LogBatch struct {
+	Lines []string `json:"lines"`
+	Next  int64    `json:"next"`
+}
+
+// logBuffer keeps the most recent log lines for the log page. New lines are
+// delivered to onFlush in batches, so a busy core does not flood the UI with
+// one event per line.
+type logBuffer struct {
+	mu      sync.Mutex
+	lines   []string
+	max     int
+	total   int64 // lines appended so far
+	pending []string
+	onFlush func(LogBatch)
+	sink    func(string) // optional, receives every line (log file)
+}
+
+func newLogBuffer(max int) *logBuffer { return &logBuffer{max: max} }
+
+func (b *logBuffer) Append(line string) {
+	b.mu.Lock()
+	b.total++
+	b.lines = append(b.lines, line)
+	if len(b.lines) > b.max {
+		b.lines = append([]string(nil), b.lines[len(b.lines)-b.max:]...)
+	}
+	b.pending = append(b.pending, line)
+	if len(b.pending) == 1 {
+		time.AfterFunc(200*time.Millisecond, b.flush)
+	}
+	b.mu.Unlock()
+	if b.sink != nil {
+		b.sink(line)
+	}
+}
+
+func (b *logBuffer) flush() {
+	b.mu.Lock()
+	// pending is always the tail of everything appended, so it ends at total
+	batch, cb := LogBatch{Lines: b.pending, Next: b.total}, b.onFlush
+	b.pending = nil
+	b.mu.Unlock()
+	if cb != nil && len(batch.Lines) > 0 {
+		cb(batch)
+	}
+}
+
+func (b *logBuffer) Snapshot() LogBatch {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return LogBatch{Lines: append([]string{}, b.lines...), Next: b.total}
+}
+
+func (b *logBuffer) Clear() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lines = nil
+}
+
+// ensureRuleSets fetches the rule-sets the current settings need but which
+// are not on disk yet, and returns those still missing afterwards. Failures
+// are only logged: the caller carries on without the affected rules.
+func (a *App) ensureRuleSets() []string {
+	a.ruleSetMu.Lock()
+	defer a.ruleSetMu.Unlock()
+	names := config.RequiredRuleSets(a.store.Settings())
+	missing := config.MissingRuleSets(a.ruleSetDir(), names)
+	if len(missing) == 0 {
+		return nil
+	}
+	a.fetchRuleSetsLocked(missing, "")
+	return config.MissingRuleSets(a.ruleSetDir(), names)
+}
+
+// fetchRuleSetsLocked makes the named .srs files available. With the local
+// mirror the bundled copies are used; everything else is downloaded, and a
+// failed download falls back to the bundled copy when there is no file yet.
+// proxy is an optional "http://host:port". The caller holds ruleSetMu.
+func (a *App) fetchRuleSetsLocked(names []string, proxy string) error {
+	mirror := a.store.Settings().RuleSetMirror
+	dir := a.ruleSetDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		a.log(i18n.T("规则集获取失败: ") + err.Error())
+		return err
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if proxy != "" {
+		if pu, err := url.Parse(proxy); err == nil {
+			transport.Proxy = http.ProxyURL(pu)
+		}
+	}
+	client := &http.Client{Transport: transport, Timeout: 20 * time.Second}
+	urls := config.URLRuleSets(a.store.Settings())
+	var errs []error
+	for _, name := range names {
+		dest := filepath.Join(dir, name+".srs")
+		if config.IsURLRuleSet(name) {
+			u, ok := urls[name]
+			if !ok {
+				continue
+			}
+			if err := a.fetchURLRuleSet(client, u, dest); err != nil {
+				err = fmt.Errorf(i18n.T("下载规则集 %s 失败: %w"), u, err)
+				a.log(err.Error())
+				errs = append(errs, err)
+				continue
+			}
+			a.log(i18n.T("规则集已下载: ") + u)
+			continue
+		}
+		if mirror == store.LocalRuleSetMirror && ruleset.Has(name) {
+			if err := ruleset.Install(name, dest); err != nil {
+				a.log(i18n.T("规则集获取失败: ") + err.Error())
+				errs = append(errs, err)
+				continue
+			}
+			a.log(i18n.T("已加载内置规则集: ") + name)
+			continue
+		}
+		remote := mirror
+		if remote == store.LocalRuleSetMirror {
+			remote = store.RemoteRuleSetMirror
+		}
+		err := downloadFile(a.ctx, client, config.RuleSetURL(remote, name), dest)
+		if err == nil {
+			a.log(i18n.T("规则集已下载: ") + name)
+			continue
+		}
+		err = fmt.Errorf(i18n.T("下载规则集 %s 失败: %w（可在设置中更换镜像）"), name, err)
+		a.log(err.Error())
+		if _, statErr := os.Stat(dest); statErr != nil && ruleset.Has(name) && ruleset.Install(name, dest) == nil {
+			a.log(i18n.T("已改用内置规则集: ") + name)
+			continue
+		}
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// fetchURLRuleSet downloads a sing-box rule-set that a rule set of the user
+// names by its address. A binary rule-set (.srs) is kept as it is; a source
+// rule-set (.json) is compiled into one with the core, which also checks it:
+// either way the core only ever loads binary files. A Clash rule provider
+// (YAML payload or plain list, not mrs) is converted into a source rule-set
+// first. Anything else (a web page) is refused.
+func (a *App) fetchURLRuleSet(client *http.Client, u, dest string) error {
+	tmp := dest + ".src"
+	defer os.Remove(tmp)
+	if err := downloadFile(a.ctx, client, u, tmp); err != nil {
+		return err
+	}
+	head := make([]byte, 3)
+	if f, err := os.Open(tmp); err == nil {
+		io.ReadFull(f, head)
+		f.Close()
+	}
+	if string(head) == "SRS" { // the magic of binary rule-sets
+		return os.Rename(tmp, dest)
+	}
+	if err := compileRuleSet(a.ctx, a.corePath(), tmp, dest); err != nil {
+		// not a sing-box rule-set: a Clash rule provider?
+		body, _ := os.ReadFile(tmp)
+		src, cerr := clash.ProviderToSource(body)
+		if cerr == nil {
+			if cerr = os.WriteFile(tmp, src, 0o644); cerr == nil {
+				cerr = compileRuleSet(a.ctx, a.corePath(), tmp, dest)
+			}
+		}
+		if cerr != nil {
+			return errors.New(i18n.T("不是 sing-box 规则集（.srs 或 .json），也不是 Clash 规则源: ") + err.Error())
+		}
+	}
+	return nil
+}
+
+// compileRuleSet turns a source rule-set (JSON) into a binary one.
+func compileRuleSet(ctx context.Context, core, src, dest string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out := dest + ".compiled"
+	cmd := exec.CommandContext(ctx, core, "rule-set", "compile", "--output", out, src)
+	sys.PrepareCmd(cmd)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		os.Remove(out)
+		msg := strings.TrimSpace(string(b))
+		if i := strings.LastIndex(msg, "\n"); i >= 0 {
+			msg = msg[i+1:]
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		return errors.New(msg)
+	}
+	return os.Rename(out, dest)
+}
+
+// CheckRuleSetURL downloads the rule-set at u right away (through the proxy
+// when connected), so that the rule set dialog can say whether it works.
+func (a *App) CheckRuleSetURL(u string) error {
+	u = store.NormalizeValue(store.KindURL, u)
+	if u == "" {
+		return errors.New(i18n.T("请输入以 http:// 或 https:// 开头的规则集地址"))
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if a.isRunning() {
+		if pu, err := url.Parse("http://" + proxyAddr(a.store.Settings())); err == nil {
+			transport.Proxy = http.ProxyURL(pu)
+		}
+	}
+	a.ruleSetMu.Lock()
+	defer a.ruleSetMu.Unlock()
+	if err := os.MkdirAll(a.ruleSetDir(), 0o755); err != nil {
+		return err
+	}
+	return a.fetchURLRuleSet(&http.Client{Transport: transport, Timeout: 20 * time.Second}, u,
+		filepath.Join(a.ruleSetDir(), config.URLRuleSetTag(u)+".srs"))
+}
+
+func downloadFile(ctx context.Context, client *http.Client, u, dest string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	tmp := dest + ".download"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(f, io.LimitReader(resp.Body, 64<<20))
+	f.Close()
+	if err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, dest)
+}
+
+// ---------------------------------------------------------------- rule-sets
+
+func (a *App) UpdateRuleSets() (string, error) {
+	s := a.store.Settings()
+	names := config.RequiredRuleSets(s)
+	if len(names) == 0 {
+		return i18n.T("当前设置不需要规则集"), nil
+	}
+	proxy := ""
+	if a.isRunning() {
+		proxy = "http://" + proxyAddr(s)
+	}
+	a.ruleSetMu.Lock()
+	err := a.fetchRuleSetsLocked(names, proxy)
+	a.ruleSetMu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	go a.restartIfRunning()
+	return fmt.Sprintf(i18n.T("已更新 %d 个规则集"), len(names)), nil
+}

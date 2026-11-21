@@ -2,15 +2,9 @@ package core
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"net/url"
-	"nextbox/internal/i18n"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -56,6 +50,8 @@ type Progress struct {
 	// Locate reports whether to also look up where a node's traffic leaves
 	// (URL test only); nil means never.
 	Locate func(id int64) bool
+	// GroupDNS are the subscriptions' own DNS servers (URL test only).
+	GroupDNS map[int64]store.GroupDNS
 }
 
 // TestURL measures real latency (HTTP request through the proxy) for nodes
@@ -89,7 +85,7 @@ func testBatch(ctx context.Context, bin, workDir string, s store.Settings, nodes
 		return err
 	}
 	api := NewAPI("127.0.0.1:"+strconv.Itoa(apiPort), RandomSecret())
-	cfg, err := config.BuildTest(s, nodes, prog.Member, api.Addr, api.Secret, proxyPort)
+	cfg, err := config.BuildTest(s, nodes, prog.Member, prog.GroupDNS, api.Addr, api.Secret, proxyPort)
 	if err != nil {
 		return err
 	}
@@ -113,12 +109,12 @@ func testBatch(ctx context.Context, bin, workDir string, s store.Settings, nodes
 			prog.Start(n.ID)
 			proxy := &url.URL{Scheme: "http", User: url.UserPassword(config.TestUser(n.ID), api.Secret), Host: proxyAddr}
 			timeout := time.Duration(s.TestTimeout) * time.Millisecond
-			ms, err := measureRTT(ctx, proxy, s.TestURL, timeout)
+			ms, err := geo.MeasureRTT(ctx, proxy, s.TestURL, timeout)
 			r := LatencyResult{ID: n.ID, Latency: ms}
 			if err != nil {
 				r.Latency, r.Error = -1, err.Error()
 			} else if prog.Locate != nil && prog.Locate(n.ID) {
-				if loc, err := locate(ctx, proxy, timeout); err == nil {
+				if loc, err := geo.Locate(ctx, proxy, timeout); err == nil {
 					r.Exit = &loc
 				}
 			}
@@ -127,116 +123,6 @@ func testBatch(ctx context.Context, bin, workDir string, s store.Settings, nodes
 	}
 	wg.Wait()
 	return nil
-}
-
-// measureRTT sends two requests over one kept-alive connection through the
-// proxy and times the second one. The first request pays for the TCP and
-// TLS / Reality handshakes; the second shows the real round trip a user feels
-// on an open connection (the same method NekoBox uses for "URL test").
-func measureRTT(ctx context.Context, proxy *url.URL, testURL string, timeout time.Duration) (int, error) {
-	tr := &http.Transport{
-		Proxy:               http.ProxyURL(proxy),
-		MaxIdleConnsPerHost: 1,
-		ForceAttemptHTTP2:   true,
-		TLSHandshakeTimeout: timeout,
-	}
-	defer tr.CloseIdleConnections()
-	client := &http.Client{Transport: tr, Timeout: timeout}
-
-	get := func() error {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
-		if err != nil {
-			return err
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
-		resp.Body.Close()
-		if resp.StatusCode >= 500 {
-			return fmt.Errorf("HTTP %d", resp.StatusCode)
-		}
-		return nil
-	}
-	if err := get(); err != nil {
-		return -1, simplifyErr(err)
-	}
-	start := time.Now()
-	if err := get(); err != nil {
-		return -1, simplifyErr(err)
-	}
-	return max(1, int(time.Since(start).Milliseconds())), nil
-}
-
-// ProbeExit measures a request through proxy (see measureRTT) and asks where
-// it leaves from. ms is -1 when the request failed.
-func ProbeExit(ctx context.Context, proxy *url.URL, testURL string, timeout time.Duration) (int, geo.Location, error) {
-	ms, err := measureRTT(ctx, proxy, testURL, timeout)
-	if err != nil {
-		return -1, geo.Location{}, &ProbeError{ProbeStepTest, err}
-	}
-	loc, err := locate(ctx, proxy, timeout)
-	if err != nil {
-		return ms, geo.Location{}, &ProbeError{ProbeStepTrace, simplifyErr(err)}
-	}
-	return ms, loc, nil
-}
-
-// locate asks where requests sent through the proxy come from. Each try is
-// a new connection through the node; when the first does not answer (a slow
-// handshake, a lost packet) the trace is asked once more at Cloudflare's DNS
-// address, and the first error is reported if that fails too.
-func locate(ctx context.Context, proxy *url.URL, timeout time.Duration) (geo.Location, error) {
-	tr := &http.Transport{Proxy: http.ProxyURL(proxy), ForceAttemptHTTP2: true, TLSHandshakeTimeout: timeout}
-	defer tr.CloseIdleConnections()
-	client := &http.Client{Transport: tr, Timeout: timeout}
-	loc, err := geo.Trace(ctx, client)
-	if err == nil || geo.TraceFallbackURL == "" || ctx.Err() != nil {
-		return loc, err
-	}
-	if l, err2 := geo.TraceAt(ctx, client, geo.TraceFallbackURL); err2 == nil {
-		return l, nil
-	}
-	return loc, err
-}
-
-// Which request of ProbeExit failed.
-const (
-	ProbeStepTest  = "test"  // the test URL (Settings.TestURL)
-	ProbeStepTrace = "trace" // the Cloudflare trace
-)
-
-// ProbeError is a failed ProbeExit: Step says which request it was.
-type ProbeError struct {
-	Step string
-	Err  error
-}
-
-func (e *ProbeError) Error() string { return e.Err.Error() }
-func (e *ProbeError) Unwrap() error { return e.Err }
-
-// ExitNetwork asks, through the proxy, which network ip belongs to.
-func ExitNetwork(ctx context.Context, proxy *url.URL, ip string, timeout time.Duration) (geo.Network, error) {
-	tr := &http.Transport{Proxy: http.ProxyURL(proxy), ForceAttemptHTTP2: true, TLSHandshakeTimeout: timeout}
-	defer tr.CloseIdleConnections()
-	n, err := geo.LookupASN(ctx, &http.Client{Transport: tr, Timeout: timeout}, ip)
-	if err != nil {
-		return n, simplifyErr(err)
-	}
-	return n, nil
-}
-
-// simplifyErr strips Go's "Get \"url\": proxyconnect ..." wrapping.
-func simplifyErr(err error) error {
-	var ue *url.Error
-	if errors.As(err, &ue) {
-		err = ue.Err
-	}
-	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "Client.Timeout") {
-		return errors.New(i18n.T("超时"))
-	}
-	return err
 }
 
 // TCPPing measures the TCP handshake time to the node server, without a core.

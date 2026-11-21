@@ -28,7 +28,7 @@ The full license texts are included in the release package under `licenses/`.
 |---|---|
 | Wails v2 (`github.com/wailsapp/wails/v2`) | MIT |
 | go-webview2 (`github.com/wailsapp/go-webview2`) | MIT |
-| fyne systray (`fyne.io/systray`) | Apache-2.0 |
+| fyne systray (`fyne.io/systray` v1.12.2, modified: retries adding the tray icon, see `third_party/systray/NEXTBOX.md`) | Apache-2.0 |
 | go-winio (`github.com/Microsoft/go-winio`, named pipes of service mode; also in `core/NextBoxService.exe`) | MIT |
 | yaml.v3 (`gopkg.in/yaml.v3`) | MIT and Apache-2.0 |
 | Go extended libraries (`golang.org/x/sys`, `x/net`, `x/crypto`, `x/text`) | BSD-3-Clause |

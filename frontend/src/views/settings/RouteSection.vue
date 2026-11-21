@@ -33,6 +33,7 @@ import {
   sceneCards, sceneInfo, targetClass, targetLabel, targetOptions, textToRules,
 } from '../../policies'
 import { confirmDialog, run, toast } from '../../util'
+import { state } from '../../state'
 
 const props = defineProps<{ form: Settings; index: number }>()
 const form = props.form
@@ -233,6 +234,13 @@ watch(text, (v) => {
 
 // ---- tester
 const probe = ref('')
+// sent from the connections page (右键 → 在「试一试」里查看路径)
+onMounted(() => {
+  if (!state.routeProbe) return
+  probe.value = state.routeProbe
+  state.routeProbe = ''
+  test()
+})
 const match = ref<RouteMatch | null>(null)
 const testing = ref(false)
 const hitPos = ref(-2) // -1 = the excluded ranges

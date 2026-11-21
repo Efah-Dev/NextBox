@@ -82,8 +82,8 @@ function refresh() {
 
 <template>
   <button class="pill" :title="title" @click="refresh">
-    <Flag :code="exit?.country ?? ''" :size="15" />
     <span class="txt">
+      <Flag :code="exit?.country ?? ''" :size="14" inline />
       <span class="name ellipsis">{{ selectedProfile ? bareName(selectedProfile.name) : '' }}</span>
       <span v-if="network" class="asn ellipsis" :title="t('落地 IP 所属网络：{0}', network.full)">{{ network.text }}</span>
       <span class="ip mono">{{ ipText }}</span>

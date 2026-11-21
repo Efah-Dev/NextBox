@@ -1,6 +1,6 @@
 # Builds the NextBox service (cmd/nextbox-service) into
 # build\bin\core\NextBoxService.exe, next to the core it installs together
-# with. Its version must be NextBox's (main.go), which NextBox compares with
+# with. Its version must be NextBox's (internal/app/version.go), which NextBox compares with
 # the installed service to offer "更新服务".
 # Usage:  powershell -ExecutionPolicy Bypass -File scripts\build-service.ps1
 
@@ -9,7 +9,7 @@ $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Out = Join-Path $Root 'build\bin\core'
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$version = (Select-String -Path (Join-Path $Root 'main.go') -Pattern '^const Version = "(.+)"$').Matches[0].Groups[1].Value
+$version = (Select-String -Path (Join-Path $Root 'internal/app/version.go') -Pattern '^const Version = "(.+)"$').Matches[0].Groups[1].Value
 Write-Host "Building NextBoxService $version"
 
 Push-Location $Root

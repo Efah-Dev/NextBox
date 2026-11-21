@@ -26,6 +26,9 @@ type Rule struct {
 	// it for the connections the rule matched. Every rule set has one.
 	Name  string     `json:"name,omitempty"`
 	Items []RuleItem `json:"items,omitempty"` // a rule set's contents
+	// From is the subscription (group ID) whose Clash rules made this rule
+	// set; an update of the subscription replaces it. 0 = made by the user.
+	From int64 `json:"from,omitempty"`
 }
 
 // RuleItem is one part of a rule set: values of one kind (one of
@@ -421,6 +424,9 @@ type Policy struct {
 	// PolicySelect (Selected, chosen by the user).
 	Mode     string `json:"mode"`
 	Selected int64  `json:"selected,omitempty"`
+	// From is the subscription (group ID) whose Clash proxy group made
+	// this policy group; an update of the subscription replaces it.
+	From int64 `json:"from,omitempty"`
 }
 
 const (

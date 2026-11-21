@@ -198,7 +198,7 @@ func TestChainConfigAccepted(t *testing.T) {
 		t.Error("building with a broken selected chain did not fail")
 	}
 
-	test, err := BuildTest(s, []store.Profile{chain, byID[2]}, member, "127.0.0.1:9090", "x", 19091)
+	test, err := BuildTest(s, []store.Profile{chain, byID[2]}, member, nil, "127.0.0.1:9090", "x", 19091)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestSkipMissingRuleSets(t *testing.T) {
 
 func TestTestConfigAccepted(t *testing.T) {
 	bin := singBox(t)
-	cfg, err := BuildTest(store.DefaultSettings(), sampleProfiles(t), nil, "127.0.0.1:9090", "x", 19090)
+	cfg, err := BuildTest(store.DefaultSettings(), sampleProfiles(t), nil, nil, "127.0.0.1:9090", "x", 19090)
 	if err != nil {
 		t.Fatal(err)
 	}

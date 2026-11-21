@@ -9,6 +9,8 @@ import AccentPicker from './settings/AccentPicker.vue'
 import DisplayLevels from './settings/DisplayLevels.vue'
 import AutoStartRow from './settings/AutoStartRow.vue'
 import RouteSection from './settings/RouteSection.vue'
+import DnsOverrides from './settings/DnsOverrides.vue'
+import SubscriptionDns from './settings/SubscriptionDns.vue'
 import TunExcludeRow from './settings/TunExcludeRow.vue'
 import TunServiceRow from './settings/TunServiceRow.vue'
 import PolicySection from './settings/PolicySection.vue'
@@ -399,6 +401,8 @@ function onScroll() {
           <div class="label">{{ t('启用 IPv6') }}</div>
           <div class="control"><Switch v-model="form.enableIpv6" /></div>
         </div>
+        <DnsOverrides v-model="form.dnsOverrides" />
+        <SubscriptionDns />
         <p class="faint tip">
           {{ t('支持 223.5.5.5、tcp://、tls://、quic://、https://、h3:// 地址，以及 local（系统 DNS）。') }}
         </p>
@@ -433,6 +437,19 @@ function onScroll() {
               :options="[
                 { value: 'exit', label: t('落地 IP') },
                 { value: 'server', label: t('服务器 IP') },
+              ]"
+            />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="label">{{ t('测速后') }}<span class="hint">{{ t('测试整个分组之后节点怎么排') }}</span></div>
+          <div class="control">
+            <Segmented
+              v-model="form.sortAfterTest"
+              :options="[
+                { value: '', label: t('每次询问') },
+                { value: 'latency', label: t('按延迟排序') },
+                { value: 'none', label: t('保持顺序') },
               ]"
             />
           </div>

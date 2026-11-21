@@ -3,6 +3,7 @@ import { onMounted, ref, watchEffect } from 'vue'
 import TitleBar from './components/TitleBar.vue'
 import Toasts from './components/Toasts.vue'
 import DialogHost from './components/DialogHost.vue'
+import ClashImportDialog from './components/ClashImportDialog.vue'
 import CountryNotice from './components/CountryNotice.vue'
 import LockScreen from './components/LockScreen.vue'
 import Home from './views/Home.vue'
@@ -69,6 +70,7 @@ onMounted(async () => {
     </Transition>
     <Toasts />
     <DialogHost />
+    <ClashImportDialog />
     <CountryNotice />
     <LockScreen v-if="ready && state.app?.locked" />
   </div>

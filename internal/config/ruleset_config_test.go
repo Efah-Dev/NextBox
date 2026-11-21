@@ -3,6 +3,7 @@ package config
 import (
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -84,7 +85,7 @@ func TestResolveStep(t *testing.T) {
 		if mode == store.ResolveRemote {
 			want = TagDNSRemote
 		}
-		if resolve == nil || resolve["server"] != want || resolve["invert"] != true || resolve["rule_set"].([]string)[0] != ForeignSites {
+		if resolve == nil || resolve["server"] != want || resolve["invert"] != true || !slices.Equal(resolve["rule_set"].([]string), []string{ForeignSites, ChinaSites}) {
 			t.Fatalf("%s: resolve step %v", mode, resolve)
 		}
 		t.Run(mode, func(t *testing.T) { check(t, bin, cfg) })

@@ -8,6 +8,7 @@ import { toasts } from '../util'
       <div v-for="t in toasts" :key="t.id" class="toast" :class="t.kind">
         <span class="bar" />
         <span class="text">{{ t.text }}</span>
+        <button v-if="t.action" class="act" @click="t.action.run">{{ t.action.label }}</button>
       </div>
     </TransitionGroup>
   </div>
@@ -53,6 +54,21 @@ import { toasts } from '../util'
   white-space: pre-wrap;
   word-break: break-word;
   user-select: text;
+}
+.act {
+  align-self: center;
+  margin-right: 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.act:hover {
+  background: var(--accent-soft-2);
 }
 .toast-enter-active,
 .toast-leave-active {

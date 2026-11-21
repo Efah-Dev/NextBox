@@ -1,3 +1,10 @@
+<script lang="ts">
+// The result shown last, kept while the settings page is closed: the tick
+// is drawn again only when the result changes, not on every check (opening
+// the page, the window getting the focus).
+let lastShown = ''
+</script>
+
 <script setup lang="ts">
 // 开机自启 with a check of what Windows will really do: an animated green
 // tick when NextBox is registered and enabled, a red cross with the reason
@@ -23,6 +30,7 @@ async function check() {
 
 // the setting is saved a moment after the switch moves (auto-save)
 watch(enabled, () => {
+  lastShown = ''
   status.value = undefined
   setTimeout(check, 900)
 })
@@ -32,6 +40,22 @@ onMounted(() => {
   window.addEventListener('focus', check)
 })
 onBeforeUnmount(() => window.removeEventListener('focus', check))
+
+const result = computed(() => {
+  const s = status.value
+  if (!enabled.value || !s) return ''
+  return s.ok ? 'ok-' + s.method : 'bad'
+})
+const animate = ref(false)
+watch(
+  result,
+  (k) => {
+    if (!k) return
+    animate.value = k !== lastShown
+    lastShown = k
+  },
+  { immediate: true },
+)
 
 const methodTitle = computed(() => {
   switch (status.value?.method) {
@@ -139,11 +163,11 @@ async function fix() {
       </span>
       <span class="spacer" />
       <template v-if="enabled && status">
-        <span v-if="status.ok" :key="'ok' + seq" class="status ok" :title="methodTitle">
+        <span v-if="status.ok" :key="result" class="status ok" :class="{ still: !animate }" :title="methodTitle">
           <svg viewBox="0 0 24 24"><circle class="ring" cx="12" cy="12" r="9" /><path class="mark" d="M7.5 12.5 10.5 15.5 16.5 9" /></svg>
           <span class="txt">{{ status.method === 'service' ? t('由 NextBox 服务启动') : t('已加入 Windows 启动项') }}</span>
         </span>
-        <span v-else :key="'bad' + seq" class="status bad">
+        <span v-else :key="result" class="status bad" :class="{ still: !animate }">
           <svg viewBox="0 0 24 24"><circle class="ring" cx="12" cy="12" r="9" /><path class="mark" d="M9 9l6 6" /><path class="mark m2" d="M15 9l-6 6" /></svg>
           <span class="txt">{{ t('未生效') }}</span>
         </span>
@@ -207,6 +231,15 @@ async function fix() {
 .txt {
   opacity: 0;
   animation: fade 0.3s 0.45s forwards;
+}
+.still .ring,
+.still .mark {
+  animation: none;
+  stroke-dashoffset: 0;
+}
+.still .txt {
+  animation: none;
+  opacity: 1;
 }
 @keyframes draw {
   to {

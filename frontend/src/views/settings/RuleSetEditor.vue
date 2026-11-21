@@ -212,7 +212,7 @@ function showCheck(u: string) {
       <div v-if="!draft.rows.length" class="faint none">{{ t('还没有内容，点「添加」或「批量添加」') }}</div>
     </div>
     <p class="faint small foot-note">
-      {{ t('规则集网址只支持 sing-box 的 .srs 或 .json 规则集，Clash 规则不兼容。连接时下载，「更新规则集」时重新下载。') }}
+      {{ t('规则集网址支持 sing-box 的 .srs、.json 规则集，以及 Clash 规则源（YAML 或文本，不支持 mrs）。连接时下载，「更新规则集」时重新下载。') }}
     </p>
 
     <template #footer>

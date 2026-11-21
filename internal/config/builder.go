@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/netip"
 	"net/url"
@@ -43,6 +44,9 @@ type Input struct {
 	// member nodes (see UsedPolicies). Rules naming a policy group that is
 	// missing here, or has no usable member, use the selected node instead.
 	Policies []PolicyInput
+	// GroupDNS are the DNS servers of subscriptions that have their own
+	// (store.Store.GroupDNS), by group ID.
+	GroupDNS map[int64]store.GroupDNS
 }
 
 type PolicyInput struct {
@@ -51,6 +55,42 @@ type PolicyInput struct {
 }
 
 const TagFakeIP = "dns-fakeip"
+
+// subResolverTag is the DNS server that resolves the node names of a subscription.
+func subResolverTag(groupID int64) string { return "dns-sub-" + strconv.FormatInt(groupID, 10) }
+
+// useResolver makes the outbounds of node n look up their server names with
+// the DNS of its subscription, when it has one, and notes that server in
+// resolvers. Chain proxies keep the direct DNS: their hops may come from
+// several subscriptions.
+func useResolver(obs []map[string]any, n store.Profile, groupDNS map[int64]store.GroupDNS, resolvers map[int64]string) {
+	d := groupDNS[n.GroupID]
+	if d.Resolver == "" || n.IsChain() {
+		return
+	}
+	resolvers[n.GroupID] = d.Resolver
+	for _, ob := range obs {
+		if _, has := ob["server"]; has {
+			ob["domain_resolver"] = subResolverTag(n.GroupID)
+		}
+	}
+}
+
+// resolverServers are the DNS servers useResolver noted, asked directly.
+func resolverServers(resolvers map[int64]string) ([]any, error) {
+	var out []any
+	for _, gid := range slices.Sorted(maps.Keys(resolvers)) {
+		srv, err := parseDNS(resolvers[gid], subResolverTag(gid))
+		if err != nil {
+			return nil, fmt.Errorf(i18n.T("订阅专属 DNS: %w"), err)
+		}
+		if host, _ := srv["server"].(string); host != "" && net.ParseIP(host) == nil {
+			srv["domain_resolver"] = TagDNSDirect
+		}
+		out = append(out, srv)
+	}
+	return out, nil
+}
 
 // Build generates the main config. It returns *MissingRuleSetsError when a
 // required rule-set file has not been downloaded yet (see SkipMissingRuleSets).
@@ -82,6 +122,7 @@ func Build(in Input) (map[string]any, error) {
 	outbounds := []any{}
 	hasProxy := in.Node != nil
 	policyTags := map[int64]string{}
+	resolvers := map[int64]string{} // group ID → its resolver, for the nodes loaded
 	if hasProxy {
 		// "proxy" is a selector over the loaded nodes: rules and DNS refer to
 		// it, and switching nodes only changes what it points at.
@@ -104,6 +145,7 @@ func Build(in Input) (map[string]any, error) {
 				continue // a node that cannot be used: leave it out
 			}
 			ok[n.ID] = true
+			useResolver(obs, n, in.GroupDNS, resolvers)
 			for _, ob := range obs {
 				nodeOutbounds = append(nodeOutbounds, ob)
 			}
@@ -175,11 +217,22 @@ func Build(in Input) (map[string]any, error) {
 		return nil, fmt.Errorf(i18n.T("直连 DNS: %w"), err)
 	}
 	dnsServers := []any{directDNS}
+	subServers, err := resolverServers(resolvers)
+	if err != nil {
+		return nil, err
+	}
+	dnsServers = append(dnsServers, subServers...)
 	dnsFinal := TagDNSDirect
 	if hasProxy && s.RouteMode != "direct" {
-		remote, err := parseDNS(s.RemoteDNS, TagDNSRemote)
+		// the subscription of the connected node may have its own (switching
+		// nodes without a restart stays within its group)
+		remoteAddr, label := s.RemoteDNS, i18n.T("远程 DNS: %w")
+		if d := in.GroupDNS[in.Node.GroupID]; d.Remote != "" {
+			remoteAddr, label = d.Remote, i18n.T("订阅专属 DNS: %w")
+		}
+		remote, err := parseDNS(remoteAddr, TagDNSRemote)
 		if err != nil {
-			return nil, fmt.Errorf(i18n.T("远程 DNS: %w"), err)
+			return nil, fmt.Errorf(label, err)
 		}
 		if remote["type"] != "local" {
 			remote["detour"] = TagProxy
@@ -190,6 +243,11 @@ func Build(in Input) (map[string]any, error) {
 		dnsServers = append([]any{remote}, dnsServers...)
 		dnsFinal = TagDNSRemote
 	}
+	ov, err := dnsOverrides(s.DNSOverrides, hasProxy && s.RouteMode != "direct")
+	if err != nil {
+		return nil, err
+	}
+	dnsServers = append(dnsServers, ov.servers...)
 	// FakeIP only makes sense when the core sees the DNS queries (TUN)
 	fakeIP := s.TunEnabled && s.TunFakeIP && dnsFinal == TagDNSRemote
 	if fakeIP {
@@ -242,7 +300,7 @@ func Build(in Input) (map[string]any, error) {
 	}
 	dns := map[string]any{
 		"servers":  dnsServers,
-		"rules":    dnsRules,
+		"rules":    append(ov.dnsRules, dnsRules...), // overrides first
 		"final":    dnsFinal,
 		"strategy": strategy,
 	}
@@ -288,6 +346,9 @@ func Build(in Input) (map[string]any, error) {
 		routeRules = append(routeRules, map[string]any{"action": "sniff"})
 	}
 	routeRules = append(routeRules, map[string]any{"protocol": "dns", "action": "hijack-dns"})
+	// the overridden domains get their addresses first: a LAN address then
+	// goes direct like any other
+	routeRules = append(routeRules, ov.routeRules...)
 	// LAN addresses first, then the excluded ranges (direct as well, for the
 	// system proxy; in TUN mode they do not reach the core at all), then the
 	// steps in the user's order
@@ -313,16 +374,22 @@ func Build(in Input) (map[string]any, error) {
 		// proxy to a wrong address): they keep their names. Settings.ResolveDNS
 		// picks the server: the direct DNS answers the way a site is reached
 		// from here (Chinese CDNs), the remote one is never tampered with.
+		//
+		// Domains of the mainland China list are not resolved either: they
+		// go direct by name in the "cn" step, and the remote DNS would answer
+		// them with addresses abroad, which the direct connection then used
+		// (10 times slower than without the bypass).
 		if resolve && !resolved && e.hasIP() {
 			resolved = true
 			server := TagDNSDirect
 			if s.ResolveDNS == store.ResolveRemote && dnsFinal == TagDNSRemote {
 				server = TagDNSRemote
 			}
-			routeRules = append(routeRules, map[string]any{
-				"rule_set": []string{ForeignSites}, "invert": true,
-				"action": "resolve", "server": server,
-			})
+			skip := []string{ForeignSites}
+			if slices.Contains(RuleSets(entries), ChinaSites) {
+				skip = append(skip, ChinaSites)
+			}
+			routeRules = append(routeRules, ov.withoutOverridden(map[string]any{"rule_set": skip, "invert": true}, server))
 		}
 		if ob := outboundOf(e.Target); ob == "" {
 			r["action"] = "reject"
@@ -598,7 +665,9 @@ func withTag(outbound map[string]any, tag string) map[string]any {
 // per hop for a chain proxy) and a single local mixed inbound. Each node is
 // reached by authenticating with its own username (see TestUser), so one port
 // serves every node. member looks up the members of chain proxies.
-func BuildTest(s store.Settings, nodes []store.Profile, member func(int64) (store.Profile, bool), clashAPI, secret string, port int) (map[string]any, error) {
+// groupDNS (may be nil) are the subscriptions' own DNS servers, used to
+// look up their nodes' server names as in the main config.
+func BuildTest(s store.Settings, nodes []store.Profile, member func(int64) (store.Profile, bool), groupDNS map[int64]store.GroupDNS, clashAPI, secret string, port int) (map[string]any, error) {
 	directDNS, err := parseDNS(s.DirectDNS, TagDNSDirect)
 	if err != nil {
 		return nil, err
@@ -610,11 +679,13 @@ func BuildTest(s store.Settings, nodes []store.Profile, member func(int64) (stor
 	for _, n := range nodes {
 		used[TestTag(n.ID)] = true
 	}
+	resolvers := map[int64]string{}
 	for _, n := range nodes {
 		obs, err := Expand(n, TestTag(n.ID), member, used)
 		if err != nil {
 			return nil, err
 		}
+		useResolver(obs, n, groupDNS, resolvers)
 		for _, ob := range obs {
 			outbounds = append(outbounds, ob)
 		}
@@ -622,13 +693,17 @@ func BuildTest(s store.Settings, nodes []store.Profile, member func(int64) (stor
 		rules = append(rules, map[string]any{"auth_user": []string{TestUser(n.ID)}, "outbound": TestTag(n.ID)})
 	}
 	outbounds = append(outbounds, map[string]any{"type": "direct", "tag": TagDirect})
+	subServers, err := resolverServers(resolvers)
+	if err != nil {
+		return nil, err
+	}
 	strategy := "ipv4_only"
 	if s.EnableIPv6 {
 		strategy = "prefer_ipv4"
 	}
 	return map[string]any{
 		"log": map[string]any{"level": "error", "timestamp": true},
-		"dns": map[string]any{"servers": []any{directDNS}, "strategy": strategy},
+		"dns": map[string]any{"servers": append([]any{directDNS}, subServers...), "strategy": strategy},
 		"inbounds": []any{map[string]any{
 			"type":        "mixed",
 			"tag":         "test-in",

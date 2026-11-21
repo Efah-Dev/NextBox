@@ -8,7 +8,8 @@ import NodeEditor from './NodeEditor.vue'
 import ChainEditor from './ChainEditor.vue'
 import DupDialog from './DupDialog.vue'
 import { api, rt, type Profile } from '../api'
-import { currentGroup, latencyTest, nodesAdded, settings, state } from '../state'
+import { askClash, askNewClash } from '../clashImport'
+import { currentGroup, latencyTest, nodesAdded, settings, sortAfterTest, state } from '../state'
 import { bareName, countryMatches, countryTitle, nodeCountry } from '../country'
 import { moveItem, useDragSort } from '../drag'
 import {
@@ -88,22 +89,18 @@ async function addSubscription() {
   updating.value = true
   const ok = await run(() => api.addSubscription(r[0], r[1]), (m) => m)
   updating.value = false
-  if (ok) nodesAdded()
+  if (ok) {
+    nodesAdded()
+    askNewClash([state.app?.currentGroupId ?? 0])
+  }
 }
 
+// the nodes keep their order; new ones are added at the end
 async function updateSubscription() {
-  if (currentGroup.value?.manualOrder) {
-    const go = await confirmDialog(
-      t('节点顺序已调整过'),
-      t('这个订阅的节点顺序被手动调整过。更新后会恢复为订阅里的顺序，确定更新吗？'),
-      false,
-      t('更新'),
-    )
-    if (!go) return
-  }
   updating.value = true
-  await run(() => api.updateSubscription(groupId.value), (m) => m)
+  const ok = await run(() => api.updateSubscription(groupId.value), (m) => m)
   updating.value = false
+  if (ok !== undefined) askNewClash([groupId.value])
 }
 
 async function editGroup() {
@@ -197,10 +194,12 @@ async function selectAndConnect(p: Profile) {
   if (!state.app?.running) run(() => api.connect(), t('连接成功'))
 }
 
-function test(mode: 'url' | 'tcp') {
+async function test(mode: 'url' | 'tcp') {
   const ids = filtered.value.map((p) => p.id)
   if (!ids.length) return
-  run(() => api.testLatency(ids, mode))
+  const sort = await sortAfterTest(ids.length)
+  if (sort === null) return
+  run(() => api.testLatency(ids, mode, sort))
 }
 
 async function copyAll() {
@@ -261,6 +260,7 @@ const moreItems = computed<MenuItem[]>(() => [
   { label: t('按协议排序'), icon: 'sort', action: () => run(() => api.sortGroup(groupId.value, 'type')) },
   { label: t('复制全部分享链接'), icon: 'copy', action: copyAll },
   { label: t('编辑分组'), icon: 'edit', action: editGroup },
+  ...(currentGroup.value?.url ? [{ label: t('Clash 订阅内容…'), hint: t('导入订阅里的分组、规则和 DNS 设置'), icon: 'layers', action: () => askClash(groupId.value, true) }] : []),
   { label: t('删除重复节点'), hint: t('检查所有分组，连接参数相同的只留一个'), icon: 'trash', danger: true, action: () => (dupOpen.value = true) },
   { label: t('删除失效节点'), icon: 'trash', danger: true, action: deleteUnavailable },
   { label: t('删除分组'), icon: 'trash', danger: true, action: deleteGroup },

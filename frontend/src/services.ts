@@ -38,13 +38,21 @@ const steamDownload = [
   'lv.queniujq.cn', 'client-update.queniuqe.com', 'steamchina.com', 'wmsjsteam.com',
 ]
 
+// translated when read: the list is made before the language is set
+const category = (id: ServiceCategory, zh: string) => ({
+  id,
+  get label() {
+    return t(zh)
+  },
+})
+
 export const serviceCategories: { id: ServiceCategory; label: string }[] = [
-  { id: 'ai', label: t('AI') },
-  { id: 'video', label: t('影音') },
-  { id: 'social', label: t('社交') },
-  { id: 'tools', label: t('工具') },
-  { id: 'games', label: t('游戏') },
-  { id: 'cn', label: t('国内') },
+  category('ai', 'AI'),
+  category('video', '影音'),
+  category('social', '社交'),
+  category('tools', '工具'),
+  category('games', '游戏'),
+  category('cn', '国内'),
 ]
 
 export const services: Service[] = [

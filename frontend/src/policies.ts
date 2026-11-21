@@ -44,22 +44,36 @@ export const targetClass = (target: Target) => (target === 'direct' ? 'to-direct
 
 // ---- rules ----
 
+/**
+ * A kind of rule with its name, translated when it is read: these lists are
+ * made when the module loads, before the language of the settings is set.
+ */
+function kind<K extends string>(value: K, zh: string, placeholder: string) {
+  return {
+    value,
+    placeholder,
+    get label() {
+      return t(zh)
+    },
+  }
+}
+
 export const ruleKinds: { value: RuleKind; label: string; placeholder: string }[] = [
-  { value: 'geosite', label: t('网站分类'), placeholder: '' },
-  { value: 'suffix', label: t('域名'), placeholder: 'google.com, youtube.com' },
-  { value: 'domain', label: t('完整域名'), placeholder: 'www.google.com, www.youtube.com' },
-  { value: 'keyword', label: t('域名关键词'), placeholder: 'google, youtube' },
-  { value: 'regex', label: t('域名正则'), placeholder: '^ads?\\.' },
-  { value: 'geoip', label: t('IP 归属地'), placeholder: '' },
-  { value: 'cidr', label: t('IP / IP 段'), placeholder: '8.8.8.8, 1.2.3.0/24' },
-  { value: 'process', label: t('程序'), placeholder: 'chrome.exe, Telegram.exe' },
+  kind<RuleKind>('geosite', '网站分类', ''),
+  kind<RuleKind>('suffix', '域名', 'google.com, youtube.com'),
+  kind<RuleKind>('domain', '完整域名', 'www.google.com, www.youtube.com'),
+  kind<RuleKind>('keyword', '域名关键词', 'google, youtube'),
+  kind<RuleKind>('regex', '域名正则', '^ads?\\.'),
+  kind<RuleKind>('geoip', 'IP 归属地', ''),
+  kind<RuleKind>('cidr', 'IP / IP 段', '8.8.8.8, 1.2.3.0/24'),
+  kind<RuleKind>('process', '程序', 'chrome.exe, Telegram.exe'),
 ]
 
 /** Android apps: kept in the rules, only NextBox for Android uses them. */
-export const androidKind = { value: 'package' as RuleKind, label: t('安卓应用'), placeholder: 'com.example.app' }
+export const androidKind = kind<RuleKind>('package', '安卓应用', 'com.example.app')
 
 /** A sing-box rule-set (.srs or .json) at an address: only inside rule sets. */
-export const urlKind = { value: 'url' as ItemKind, label: t('规则集网址'), placeholder: 'https://example.com/rules.srs' }
+export const urlKind = kind<ItemKind>('url', '规则集网址', 'https://example.com/rules.srs')
 
 /** What an item of a rule set can be. */
 export const itemKinds: { value: ItemKind; label: string; placeholder: string }[] = [...ruleKinds, urlKind]
@@ -124,13 +138,21 @@ export function defaultRoute(): { rules: ParsedRule[]; scenes: { id: string; ena
   }
 }
 
+// translated when read: the list is made before the language is set
+const geo = (value: string, zh: string) => ({
+  value,
+  get label() {
+    return t(zh)
+  },
+})
+
 const baseGeosites = [
   { value: 'google', label: 'Google' },
   { value: 'youtube', label: 'YouTube' },
   { value: 'openai', label: 'OpenAI / ChatGPT' },
   { value: 'anthropic', label: 'Claude (Anthropic)' },
   { value: 'google-gemini', label: 'Gemini' },
-  { value: 'category-ai-!cn', label: t('AI 服务（境外）') },
+  geo('category-ai-!cn', 'AI 服务（境外）'),
   { value: 'telegram', label: 'Telegram' },
   { value: 'github', label: 'GitHub' },
   { value: 'microsoft', label: 'Microsoft' },
@@ -144,10 +166,10 @@ const baseGeosites = [
   { value: 'tiktok', label: 'TikTok' },
   { value: 'apple', label: 'Apple' },
   { value: 'steam', label: 'Steam' },
-  { value: 'bilibili', label: t('哔哩哔哩') },
-  { value: 'cn', label: t('中国大陆网站') },
-  { value: 'geolocation-!cn', label: t('境外网站') },
-  { value: 'category-ads-all', label: t('广告域名') },
+  geo('bilibili', '哔哩哔哩'),
+  geo('cn', '中国大陆网站'),
+  geo('geolocation-!cn', '境外网站'),
+  geo('category-ads-all', '广告域名'),
 ]
 
 /** The site categories offered in the rules: the common ones first, then

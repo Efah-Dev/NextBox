@@ -77,18 +77,21 @@ export interface Toast {
   id: number
   text: string
   kind: 'info' | 'success' | 'error'
+  /** a button in the toast, such as 撤销 */
+  action?: { label: string; run: () => void }
 }
 
 export const toasts = reactive<Toast[]>([])
 let toastSeq = 0
 
-export function toast(text: string, kind: Toast['kind'] = 'info') {
+export function toast(text: string, kind: Toast['kind'] = 'info', action?: Toast['action']) {
   const id = ++toastSeq
-  toasts.push({ id, text, kind })
-  setTimeout(() => {
+  const close = () => {
     const i = toasts.findIndex((t) => t.id === id)
     if (i >= 0) toasts.splice(i, 1)
-  }, kind === 'error' ? 6000 : 3000)
+  }
+  toasts.push({ id, text, kind, action: action && { label: action.label, run: () => (close(), action.run()) } })
+  setTimeout(close, kind === 'error' || action ? 6000 : 3000)
 }
 
 /** Runs an async action and reports its result / error as a toast. */
@@ -118,11 +121,22 @@ export interface PromptInput {
 export const httpWarning = (v: string) =>
   /^http:\/\//i.test(v.trim()) ? t('HTTP 协议不安全：订阅内容以明文传输，可能被窃听或篡改，建议使用 HTTPS 地址') : ''
 
+/** One option of choiceDialog. */
+export interface DialogChoice {
+  value: string
+  label: string
+  hint?: string
+}
+
 export interface DialogState {
   open: boolean
   title: string
   message: string
   inputs?: PromptInput[]
+  choices?: DialogChoice[] // radio options (choiceDialog)
+  choice?: string
+  remember?: boolean // the "remember" box; undefined = not shown
+  rememberText?: string
   hint?: string // second, smaller line
   danger?: boolean
   confirmText?: string
@@ -134,7 +148,7 @@ export const dialog = reactive<DialogState>({ open: false, title: '', message: '
 export function confirmDialog(title: string, message: string, danger = false, confirmText = ''): Promise<boolean> {
   return new Promise((resolve) => {
     Object.assign(dialog, {
-      open: true, title, message, danger, inputs: undefined,
+      open: true, title, message, danger, inputs: undefined, choices: undefined, remember: undefined,
       confirmText: confirmText || (danger ? t('删除') : t('确定')),
       resolve: (v: string[] | null) => resolve(v !== null),
     })
@@ -148,9 +162,31 @@ export function promptDialog(
 ): Promise<string[] | null> {
   return new Promise((resolve) => {
     Object.assign(dialog, {
-      open: true, title, message, danger: false, confirmText: t('确定'),
+      open: true, title, message, danger: false, confirmText: t('确定'), choices: undefined, remember: undefined,
       inputs: inputs.map((i) => ({ ...i, value: i.value ?? '' })),
       resolve,
+    })
+  })
+}
+
+/**
+ * Asks to pick one of choices, optionally with a box to remember the pick.
+ * Resolves with the pick and the box, or null when cancelled.
+ */
+export function choiceDialog(
+  title: string,
+  message: string,
+  choices: DialogChoice[],
+  selected: string,
+  opts: { confirmText?: string; rememberText?: string } = {},
+): Promise<{ value: string; remember: boolean } | null> {
+  return new Promise((resolve) => {
+    Object.assign(dialog, {
+      open: true, title, message, danger: false, inputs: undefined,
+      choices, choice: selected,
+      remember: opts.rememberText ? false : undefined, rememberText: opts.rememberText,
+      confirmText: opts.confirmText || t('确定'),
+      resolve: (v: string[] | null) => resolve(v ? { value: v[0], remember: v[1] === '1' } : null),
     })
   })
 }
