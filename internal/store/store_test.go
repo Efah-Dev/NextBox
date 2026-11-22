@@ -284,6 +284,29 @@ func TestReorderAndManualOrder(t *testing.T) {
 	if g, _ := s.Group(sub.ID); !g.ManualOrder {
 		t.Error("sorting a subscription did not mark it")
 	}
+
+	// "default" goes back to the subscription's order (also after a
+	// background update kept a manual one); nodes added by hand come last
+	s.ReplaceGroupProfiles(sub.ID, []Profile{node("b"), node("e"), node("a"), node("c")}, true)
+	s.AddProfiles(sub.ID, []Profile{node("m")})
+	if err := s.SortGroup(sub.ID, SortDefault); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(s.Profiles(sub.ID)); got != "b e a c m " {
+		t.Errorf("default order: %s", got)
+	}
+	if g, _ := s.Group(sub.ID); g.ManualOrder {
+		t.Error("the subscription's own order is not a manual one")
+	}
+	// a manual group: the order the nodes were added in
+	s.AddProfiles(manual.ID, []Profile{node("y")})
+	s.ReorderProfiles(manual.ID, []int64{0})
+	ps := s.Profiles(manual.ID)
+	s.ReorderProfiles(manual.ID, []int64{ps[1].ID, ps[0].ID})
+	s.SortGroup(manual.ID, SortDefault)
+	if got := names(s.Profiles(manual.ID)); got != "x y " {
+		t.Errorf("manual default order: %s", got)
+	}
 }
 
 func TestCountryKeptForUnchangedNodes(t *testing.T) {

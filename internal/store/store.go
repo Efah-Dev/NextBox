@@ -358,6 +358,10 @@ func (s *Store) ReplaceGroupProfiles(groupID int64, list []Profile, keepOrder bo
 		fresh = append(fresh, &p)
 		byID[p.ID] = &p
 	}
+	g.SubOrder = make([]int64, len(fresh))
+	for i, p := range fresh {
+		g.SubOrder[i] = p.ID
+	}
 	if keepOrder {
 		ordered := make([]*Profile, 0, len(fresh))
 		for _, p := range oldOrder {
@@ -526,8 +530,9 @@ func (s *Store) Flush() error {
 func (s *Store) SortGroup(groupID int64, by string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if g := s.groupLocked(groupID); g != nil && g.URL != "" {
-		g.ManualOrder = true
+	g := s.groupLocked(groupID)
+	if g != nil && g.URL != "" {
+		g.ManualOrder = by != "default"
 	}
 	var idx []int
 	var items []*Profile
@@ -537,9 +542,27 @@ func (s *Store) SortGroup(groupID int64, by string) error {
 			items = append(items, p)
 		}
 	}
+	// "default": the order of the subscription as last downloaded, nodes
+	// added by hand after it in the order they were added
+	subPos := map[int64]int{}
+	if g != nil {
+		for i, id := range g.SubOrder {
+			subPos[id] = i
+		}
+	}
+	defaultKey := func(p *Profile) (int, int64) {
+		if i, ok := subPos[p.ID]; ok {
+			return 0, int64(i)
+		}
+		return 1, p.ID
+	}
 	sort.SliceStable(items, func(i, j int) bool {
 		a, b := items[i], items[j]
 		switch by {
+		case "default":
+			ga, ka := defaultKey(a)
+			gb, kb := defaultKey(b)
+			return ga < gb || ga == gb && ka < kb
 		case "latency":
 			return latencyKey(a.Latency) < latencyKey(b.Latency)
 		case "type":

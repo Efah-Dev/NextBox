@@ -41,7 +41,8 @@ func TestCleanRuleSet(t *testing.T) {
 	s.Rules = []Rule{{Kind: KindSet, Name: "  游戏 ", Target: TargetDirect, Items: []RuleItem{
 		{Kind: "suffix", Values: []string{".Example.COM", "example.com"}},
 		{Kind: "cidr", Values: []string{"1.2.3.4", "/32", "nope"}},
-		{Kind: "suffix", Values: []string{"b.example"}},		{Kind: "nope", Values: []string{"x"}},
+		{Kind: "suffix", Values: []string{"b.example"}},
+		{Kind: "nope", Values: []string{"x"}},
 		{Kind: KindURL, Values: []string{"ftp://x/y.srs", "https://example.com/r.srs"}},
 		{Kind: "process", Values: []string{}},
 	}}}

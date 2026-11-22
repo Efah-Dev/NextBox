@@ -76,6 +76,9 @@ type Group struct {
 	// ManualOrder is set when the nodes of a subscription were reordered by
 	// hand (dragged or sorted), so that an update can ask before resetting it.
 	ManualOrder bool `json:"manualOrder,omitempty"`
+	// SubOrder lists the node ids in the order of the subscription as last
+	// updated, so that SortGroup("default") can return to it.
+	SubOrder []int64 `json:"subOrder,omitempty"`
 	// Clash says which parts of a Clash subscription besides its nodes are
 	// taken over on every update; nil until the user was asked.
 	Clash *ClashImport `json:"clash,omitempty"`
@@ -207,7 +210,8 @@ type Settings struct {
 	TestTimeout     int    `json:"testTimeout"` // ms
 	TestConcurrency int    `json:"testConcurrency"`
 	// SortAfterTest is what happens to the order of a group after a speed
-	// test of it: SortAsk ("", the app asks), SortByLatency or SortNone.
+	// test of it: SortAsk ("", the app asks), SortByLatency, SortNone or
+	// SortDefault.
 	SortAfterTest string `json:"sortAfterTest"`
 
 	SubUserAgent     string `json:"subUserAgent"`
@@ -246,6 +250,7 @@ const (
 	SortAsk       = ""
 	SortByLatency = "latency"
 	SortNone      = "none"
+	SortDefault   = "default" // back to the order of the subscription (Group.SubOrder)
 )
 
 // Settings.ResolveDNS values.
