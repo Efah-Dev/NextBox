@@ -209,9 +209,13 @@ type Settings struct {
 	TestURL         string `json:"testUrl"`
 	TestTimeout     int    `json:"testTimeout"` // ms
 	TestConcurrency int    `json:"testConcurrency"`
+	// TestMode is how a speed test measures: TestTCP (the time to reach the
+	// server) or TestURL (a request through the node). Protocols over UDP and
+	// chain proxies are always tested by URL.
+	TestMode string `json:"testMode"`
 	// SortAfterTest is what happens to the order of a group after a speed
-	// test of it: SortAsk ("", the app asks), SortByLatency, SortNone or
-	// SortDefault.
+	// test of it: SortDefault, SortByLatency or SortNone; SortAsk ("") until
+	// the user has chosen, which the first test of a group asks once.
 	SortAfterTest string `json:"sortAfterTest"`
 
 	SubUserAgent     string `json:"subUserAgent"`
@@ -245,9 +249,15 @@ const (
 	RemoteRuleSetMirror = "https://testingcf.jsdelivr.net/gh/SagerNet/sing-{kind}@rule-set/{name}.srs"
 )
 
+// Settings.TestMode values.
+const (
+	TestTCP = "tcp"
+	TestURL = "url"
+)
+
 // Settings.SortAfterTest values.
 const (
-	SortAsk       = ""
+	SortAsk       = "" // not chosen yet: asked on the first test of a group
 	SortByLatency = "latency"
 	SortNone      = "none"
 	SortDefault   = "default" // back to the order of the subscription (Group.SubOrder)
@@ -287,7 +297,8 @@ func DefaultSettings() Settings {
 		TestURL:          "https://www.google.com/generate_204",
 		TestTimeout:      5000,
 		TestConcurrency:  16,
-		SubUserAgent:     "NextBox/2.4.0 (sing-box; ClashMeta compatible)",
+		TestMode:         TestTCP,
+		SubUserAgent:     "NextBox/2.4.1 (sing-box; ClashMeta compatible)",
 		SubUpdateHours:   12,
 		CountrySource:    CountryExit,
 		LogLevel:         "info",
@@ -352,6 +363,14 @@ func (s *Settings) fillDefaults() {
 	}
 	if s.TestConcurrency <= 0 {
 		s.TestConcurrency = d.TestConcurrency
+	}
+	if s.TestMode != TestURL {
+		s.TestMode = TestTCP
+	}
+	switch s.SortAfterTest {
+	case SortDefault, SortByLatency, SortNone:
+	default:
+		s.SortAfterTest = SortAsk
 	}
 	// the default of an older version follows the new one; a custom value stays
 	if s.SubUserAgent == "" || (strings.HasPrefix(s.SubUserAgent, "NextBox/") && strings.HasSuffix(s.SubUserAgent, " (sing-box; ClashMeta compatible)")) {

@@ -63,37 +63,54 @@ const testUrls = [
 
 // rules and scenes are arrays: the form must never share them with the
 // saved settings, or a change would look saved before it is
-const clone = (s: Settings): Settings => JSON.parse(JSON.stringify(s))
-const form = reactive<Settings>(clone(state.app!.settings))
+const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
+type Key = keyof Settings
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+
+// The form is compared key by key with base, the settings as they were when
+// it last took them over: only the keys changed here are saved, and changes
+// made elsewhere (an imported backup, the backend's normalisation, other
+// pages) are taken over for every other key. A comparison of the whole
+// object would depend on the order of its keys, and a stale form would be
+// saved over the newer settings.
+let base = clone(state.app!.settings)
+const form = reactive<Settings>(clone(base))
+const edited = () => [...new Set([...Object.keys(form), ...Object.keys(base)])].filter((k) => !same(form[k as Key], base[k as Key])) as Key[]
 // left-overs of earlier visits (see the clean-up when the page is left)
 if (form.rules.some((r) => !isStep(r) && !ruleFilled(r))) form.rules = form.rules.filter((r) => isStep(r) || ruleFilled(r))
 let timer = 0
-let pending = false
-
-const sameAsSaved = () => JSON.stringify(form) === JSON.stringify(state.app?.settings)
 
 // Auto-save, like a launcher: every change is persisted shortly after it is made.
 watch(form, () => {
   clearTimeout(timer)
-  pending = !sameAsSaved()
-  if (pending) timer = window.setTimeout(save, 350)
+  if (edited().length) timer = window.setTimeout(save, 350)
 })
 
-// Pick up changes made elsewhere (backend normalisation, other pages).
 watch(
   () => state.app?.settings,
   (s) => {
-    if (s && !pending && !sameAsSaved()) Object.assign(form, clone(s))
+    if (!s) return
+    const mine = edited()
+    const next = clone(s)
+    base = clone(s)
+    const f = form as Record<string, unknown>
+    for (const k of Object.keys(f)) if (!(k in next) && !mine.includes(k as Key)) delete f[k]
+    for (const [k, v] of Object.entries(next)) if (!mine.includes(k as Key) && !same(f[k], v)) f[k] = v
   },
 )
 
 async function save() {
-  pending = false
-  if (sameAsSaved()) return
+  clearTimeout(timer)
+  const keys = edited()
+  if (!keys.length || !state.app) return
+  const next = clone(state.app.settings) as Record<string, unknown>
+  for (const k of keys) {
+    if (k in form) next[k] = clone(form[k])
+    else delete next[k]
+  }
   try {
-    const next = clone(form)
-    state.app!.settings = next
-    await api.saveSettings(clone(next))
+    state.app.settings = next as unknown as Settings
+    await api.saveSettings(clone(next as unknown as Settings))
   } catch (e) {
     toast((e as Error).message, 'error')
   }
@@ -200,7 +217,6 @@ onUnmounted(() => {
   const filled = form.rules.filter((r) => isStep(r) || ruleFilled(r))
   if (filled.length !== form.rules.length) {
     form.rules = filled
-    clearTimeout(timer)
     save()
   }
 })
@@ -442,14 +458,32 @@ function onScroll() {
           </div>
         </div>
         <div class="form-row">
-          <div class="label">{{ t('测速后') }}<span class="hint">{{ t('测试整个分组之后节点怎么排') }}</span></div>
+          <div class="label">
+            {{ t('测速方式') }}
+            <span class="hint">{{ form.testMode === 'tcp' ? t('只测服务器端口，更快；UDP 协议总用 URL') : t('经节点访问测速地址，测真实延迟') }}</span>
+          </div>
+          <div class="control">
+            <Segmented
+              v-model="form.testMode"
+              :options="[
+                { value: 'tcp', label: 'TCP' },
+                { value: 'url', label: 'URL' },
+              ]"
+            />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="label">
+            {{ t('测速后') }}
+            <span class="hint">{{ form.sortAfterTest === 'default' ? t('恢复订阅里的顺序，手动分组按添加的先后') : form.sortAfterTest === 'latency' ? t('最快的在最上面，超时的排到最后') : form.sortAfterTest === 'none' ? t('只显示延迟，不动位置') : t('还没选，第一次测速时会询问') }}</span>
+          </div>
           <div class="control">
             <Segmented
               v-model="form.sortAfterTest"
               :options="[
-                { value: '', label: t('每次询问') },
-                { value: 'latency', label: t('按延迟排序') },
-                { value: 'none', label: t('保持顺序') },
+                { value: 'default', label: t('默认顺序') },
+                { value: 'latency', label: t('按延迟') },
+                { value: 'none', label: t('不动') },
               ]"
             />
           </div>

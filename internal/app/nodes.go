@@ -342,7 +342,9 @@ type TestBegin struct {
 // with its result, and finally "latency-done". mode is "url" or "tcp".
 // sortAfter sorts the groups of the tested nodes by latency once the test
 // has finished (not when it was stopped).
-func (a *App) TestLatency(ids []int64, mode string, sortAfter bool) error {
+// TestLatency tests the given nodes by mode (store.TestTCP or TestURL) and,
+// when sortBy is not empty, sorts their groups afterwards (SortGroup).
+func (a *App) TestLatency(ids []int64, mode string, sortBy string) error {
 	nodes := a.store.ProfilesByIDs(ids)
 	if len(nodes) == 0 {
 		return errors.New(i18n.T("没有要测试的节点"))
@@ -371,9 +373,9 @@ func (a *App) TestLatency(ids []int64, mode string, sortAfter bool) error {
 			a.mu.Lock()
 			a.testCancel = nil
 			a.mu.Unlock()
-			if sortAfter && finished {
+			if sortBy != "" && finished {
 				for _, gid := range groups {
-					a.store.SortGroup(gid, "latency")
+					a.store.SortGroup(gid, sortBy)
 					a.emitProfiles(gid)
 				}
 			}

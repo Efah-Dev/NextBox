@@ -11,7 +11,7 @@ import ExitPill from '../components/ExitPill.vue'
 import { bareName, countryTitle, nodeCountry } from '../country'
 import { api, rt } from '../api'
 import { askNewClash } from '../clashImport'
-import { currentGroup, nodesAdded, patchSettings, selectedProfile, settings, sortAfterTest, state } from '../state'
+import { currentGroup, nodesAdded, patchSettings, selectedProfile, settings, sortChosen, state, testNodes } from '../state'
 import { formatBytes, formatDuration, formatSpeed, groupName, latencyClass, latencyText, run, serverOf, toast, typeName } from '../util'
 
 const busy = ref(false)
@@ -96,9 +96,8 @@ async function updateAll() {
 
 async function testCurrentGroup() {
   const ids = state.profiles.map((p) => p.id)
-  const sort = await sortAfterTest(ids.length)
-  if (sort === null) return
-  run(() => api.testLatency(ids, 'url', sort), t('开始测速：') + groupName(currentGroup.value))
+  if (!(await sortChosen(ids.length))) return
+  run(() => testNodes(ids), t('开始测速：') + groupName(currentGroup.value))
   state.page = 'nodes'
 }
 

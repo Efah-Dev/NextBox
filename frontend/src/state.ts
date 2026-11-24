@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import { api, rt, type AppState, type ExitInfo, type LatencyResult, type LogBatch, type Profile, type Settings, type UpdateInfo } from './api'
+import { api, rt, type AppState, type ExitInfo, type LatencyResult, type LogBatch, type Profile, type Settings, type TestMode, type UpdateInfo } from './api'
 import { t } from './i18n'
 import { choiceDialog, toast } from './util'
 
@@ -33,7 +33,7 @@ export function nodesAdded() {
 
 /** Progress of the running latency test (mode '' = none). */
 export const latencyTest = reactive({
-  mode: '' as '' | 'url' | 'tcp',
+  mode: '' as '' | TestMode,
   total: 0,
   done: 0,
   waiting: new Set<number>(),
@@ -75,28 +75,39 @@ export async function loadProfiles() {
   state.profiles = await api.getProfiles(state.app.currentGroupId)
 }
 
+/** The speed test method chosen in the settings. */
+export const testMode = (): TestMode => state.app?.settings.testMode ?? 'tcp'
+
 /**
- * Whether a speed test of several nodes should sort their group by latency
- * afterwards (Settings.sortAfterTest): asks unless a choice was remembered.
- * null when the test was cancelled.
+ * Before the first test of a whole group, asks once how its nodes are
+ * ordered afterwards and keeps the answer (Settings.sortAfterTest, changed
+ * in the settings later). false when cancelled.
  */
-export async function sortAfterTest(count: number): Promise<boolean | null> {
-  if (count < 2) return false
-  const pref = state.app?.settings.sortAfterTest ?? ''
-  if (pref) return pref === 'latency'
-  const r = await choiceDialog(
+export async function sortChosen(count: number): Promise<boolean> {
+  if (count < 2 || state.app?.settings.sortAfterTest) return true
+  const v = await choiceDialog(
     t('测速'),
-    t('测试 {0} 个节点。测完以后：', count),
+    t('测试 {0} 个节点。测完以后节点怎么排？', count),
     [
+      { value: 'default', label: t('默认顺序'), hint: t('恢复订阅里的顺序，手动分组按添加的先后') },
       { value: 'latency', label: t('按延迟排序'), hint: t('最快的在最上面，超时的排到最后') },
       { value: 'none', label: t('保持现在的顺序'), hint: t('只显示延迟，不动位置') },
     ],
-    'latency',
-    { confirmText: t('开始测速'), rememberText: t('记住这个选择，下次直接测速（可在设置 → 订阅与测速里修改）') },
+    'default',
+    { confirmText: t('开始测速'), note: t('只问这一次。以后要改，前往「设置 → 订阅与测速 → 测速后」。') },
   )
-  if (!r) return null
-  if (r.remember) await patchSettings({ sortAfterTest: r.value as 'latency' | 'none' })
-  return r.value === 'latency'
+  if (!v) return false
+  await patchSettings({ sortAfterTest: v as Settings['sortAfterTest'] })
+  return true
+}
+
+/**
+ * Speed tests the given nodes the way the settings say and sorts their group
+ * afterwards (Settings.sortAfterTest); a single node is never moved.
+ */
+export function testNodes(ids: number[], mode = testMode()) {
+  const by = state.app?.settings.sortAfterTest || 'default'
+  return api.testLatency(ids, mode, ids.length < 2 || by === 'none' ? '' : by)
 }
 
 /** Saves a partial settings change; the backend restarts the core if needed. */
@@ -177,7 +188,7 @@ export async function init() {
     state.traffic.history.push({ up: t.up, down: t.down })
     if (state.traffic.history.length > 60) state.traffic.history.shift()
   })
-  rt.on('latency-begin', (b: { ids: number[]; mode: 'url' | 'tcp' }) => {
+  rt.on('latency-begin', (b: { ids: number[]; mode: TestMode }) => {
     Object.assign(latencyTest, { mode: b.mode, total: b.ids.length, done: 0, current: 0 })
     latencyTest.waiting = new Set(b.ids)
     latencyTest.running = new Set()

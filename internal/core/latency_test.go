@@ -91,3 +91,25 @@ func TestURLMeasuresThroughNode(t *testing.T) {
 		t.Logf("broken node error: %s", r.Error)
 	}
 }
+
+func TestURLOnly(t *testing.T) {
+	cases := []struct {
+		p    store.Profile
+		want bool
+	}{
+		{store.Profile{Type: "hysteria2"}, true},
+		{store.Profile{Type: "tuic"}, true},
+		{store.Profile{Type: store.TypeChain}, true},
+		{store.Profile{Type: "naive", Outbound: map[string]any{"quic": true}}, true},
+		{store.Profile{Type: "naive", Outbound: map[string]any{}}, false},
+		{store.Profile{Type: "vless", Outbound: map[string]any{"transport": map[string]any{"type": "quic"}}}, true},
+		{store.Profile{Type: "vless", Outbound: map[string]any{"transport": map[string]any{"type": "ws"}}}, false},
+		{store.Profile{Type: "trojan", Outbound: map[string]any{}}, false},
+		{store.Profile{Type: "shadowsocks"}, false},
+	}
+	for _, c := range cases {
+		if got := URLOnly(c.p); got != c.want {
+			t.Errorf("%s %v: %v", c.p.Type, c.p.Outbound, got)
+		}
+	}
+}

@@ -16,7 +16,7 @@ function finish(ok: boolean) {
   dialog.open = false
   dialog.resolve = undefined
   if (!ok) return resolve?.(null)
-  if (dialog.choices) return resolve?.([dialog.choice ?? '', dialog.remember ? '1' : ''])
+  if (dialog.choices) return resolve?.([dialog.choice ?? ''])
   resolve?.((dialog.inputs ?? []).map((i) => i.value))
 }
 </script>
@@ -44,10 +44,7 @@ function finish(ok: boolean) {
         </span>
       </label>
     </div>
-    <label v-if="dialog.remember !== undefined" class="remember">
-      <input v-model="dialog.remember" type="checkbox" />
-      <span>{{ dialog.rememberText }}</span>
-    </label>
+    <p v-if="dialog.note" class="note faint">{{ dialog.note }}</p>
     <template #footer>
       <button class="btn" @click="finish(false)">{{ t('取消') }}</button>
       <button class="btn" :class="dialog.danger ? 'danger solid' : 'primary'" @click="finish(true)">
@@ -109,16 +106,10 @@ function finish(ok: boolean) {
 .choice-text b {
   font-size: 13px;
 }
-.remember {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.note {
+  margin: 0 0 4px;
   font-size: 12px;
-  color: var(--text-2);
-  cursor: pointer;
-}
-.remember input {
-  accent-color: var(--accent);
+  line-height: 1.6;
 }
 .warning {
   font-size: 12px;

@@ -7,9 +7,9 @@ import Flag from '../components/Flag.vue'
 import NodeEditor from './NodeEditor.vue'
 import ChainEditor from './ChainEditor.vue'
 import DupDialog from './DupDialog.vue'
-import { api, rt, type Profile } from '../api'
+import { api, rt, type Profile, type TestMode } from '../api'
 import { askClash, askNewClash } from '../clashImport'
-import { currentGroup, latencyTest, nodesAdded, settings, sortAfterTest, state } from '../state'
+import { currentGroup, latencyTest, nodesAdded, settings, sortChosen, state, testMode, testNodes } from '../state'
 import { bareName, countryMatches, countryTitle, nodeCountry } from '../country'
 import { moveItem, useDragSort } from '../drag'
 import {
@@ -194,12 +194,9 @@ async function selectAndConnect(p: Profile) {
   if (!state.app?.running) run(() => api.connect(), t('连接成功'))
 }
 
-async function test(mode: 'url' | 'tcp') {
+async function testAll() {
   const ids = filtered.value.map((p) => p.id)
-  if (!ids.length) return
-  const sort = await sortAfterTest(ids.length)
-  if (sort === null) return
-  run(() => api.testLatency(ids, mode, sort))
+  if (ids.length && (await sortChosen(ids.length))) run(() => testNodes(ids))
 }
 
 async function copyAll() {
@@ -228,11 +225,6 @@ function openTestSettings() {
   state.page = 'settings'
 }
 
-const testItems = computed<MenuItem[]>(() => [
-  { label: t('URL 测试'), hint: t('经节点访问测速地址，测真实延迟'), icon: 'zap', action: () => test('url') },
-  { label: t('TCP 测试'), hint: t('只测连上服务器的时间，更快但不经过节点；基于 UDP 的协议和链式代理自动改用 URL 测试'), icon: 'gauge', action: () => test('tcp') },
-  { label: t('测速设置…'), icon: 'settings', action: openTestSettings },
-])
 
 // ---- progress of the running test ----
 const testPercent = computed(() => (latencyTest.total ? (latencyTest.done / latencyTest.total) * 100 : 0))
@@ -285,17 +277,24 @@ async function copyServer(p: Profile) {
 // a URL test.
 // (keep in sync with core.URLOnly, which does the same for batch TCP tests)
 const urlOnlyTypes = new Set(['hysteria', 'hysteria2', 'tuic', 'wireguard', 'chain'])
-const urlOnly = (p: Profile) => urlOnlyTypes.has(p.type)
+const urlOnly = (p: Profile) =>
+  urlOnlyTypes.has(p.type) ||
+  (p.type === 'naive' && p.outbound.quic === true) || // HTTP/3 runs over UDP
+  (p.outbound.transport as { type?: string } | undefined)?.type === 'quic' // vmess / vless / trojan over QUIC
 
+// Shift picks the other method
+const otherMode = (m: TestMode): TestMode => (m === 'tcp' ? 'url' : 'tcp')
 function testOne(p: Profile, e: MouseEvent) {
   if (latencyTest.mode) return toast(t('正在测速，请稍候'), 'error')
-  const mode = e.shiftKey || urlOnly(p) ? 'url' : 'tcp'
-  run(() => api.testLatency([p.id], mode))
+  const mode = urlOnly(p) ? 'url' : e.shiftKey ? otherMode(testMode()) : testMode()
+  run(() => testNodes([p.id], mode))
 }
 
 function boltTitle(p: Profile) {
   if (urlOnly(p)) return p.type === 'chain' ? t('URL 测试（链式代理要测整条链路）') : t('URL 测试（基于 UDP 的协议不能用 TCP 测速）')
-  return t('TCP 测速：只测服务器端口能否连上。按住 Shift 点击改用 URL 测试，检验节点是否真的可用')
+  return testMode() === 'tcp'
+    ? t('TCP 测速：只测服务器端口能否连上。按住 Shift 点击改用 URL 测试，检验节点是否真的可用')
+    : t('URL 测试：经节点访问测速地址。按住 Shift 点击改用 TCP 测速，只测服务器端口')
 }
 </script>
 
@@ -354,7 +353,9 @@ function boltTitle(p: Profile) {
         <button class="btn" :title="t('从剪贴板导入')" @click="importClipboard"><Icon name="clipboard" /> {{ t('导入') }}</button>
         <Menu :items="addItems" icon="plus" />
         <button v-if="testing" class="btn danger" @click="run(() => api.stopTest())"><Icon name="close" /> {{ t('停止测速') }}</button>
-        <Menu v-else :items="testItems" icon="zap" :label="t('测速')" />
+        <button v-else class="btn primary" :disabled="!filtered.length" :title="testMode() === 'tcp' ? t('TCP 测速 · 可在设置里改') : t('URL 测速 · 可在设置里改')" @click="testAll">
+          <Icon name="zap" /> {{ t('测速') }}
+        </button>
         <Menu :items="moreItems" />
       </div>
 

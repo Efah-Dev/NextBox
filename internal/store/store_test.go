@@ -354,3 +354,23 @@ func TestChainMembers(t *testing.T) {
 		t.Errorf("members after deleting the entry: %+v", m)
 	}
 }
+
+func TestSpeedTestSettings(t *testing.T) {
+	// not chosen yet: the first test of a group asks once
+	s := open(t, t.TempDir()).Settings()
+	if s.TestMode != TestTCP || s.SortAfterTest != SortAsk {
+		t.Fatalf("new: test mode %q, sort %q", s.TestMode, s.SortAfterTest)
+	}
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"testMode": "url", "sortAfterTest": "none"}`), 0o644)
+	s = open(t, dir).Settings()
+	if s.TestMode != TestURL || s.SortAfterTest != SortNone {
+		t.Fatalf("choices lost: %q %q", s.TestMode, s.SortAfterTest)
+	}
+	dir = t.TempDir()
+	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"testMode": "x", "sortAfterTest": "x"}`), 0o644)
+	s = open(t, dir).Settings()
+	if s.TestMode != TestTCP || s.SortAfterTest != SortAsk {
+		t.Fatalf("nonsense kept: %q %q", s.TestMode, s.SortAfterTest)
+	}
+}

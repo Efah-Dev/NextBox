@@ -135,8 +135,7 @@ export interface DialogState {
   inputs?: PromptInput[]
   choices?: DialogChoice[] // radio options (choiceDialog)
   choice?: string
-  remember?: boolean // the "remember" box; undefined = not shown
-  rememberText?: string
+  note?: string // small print under the options
   hint?: string // second, smaller line
   danger?: boolean
   confirmText?: string
@@ -148,7 +147,7 @@ export const dialog = reactive<DialogState>({ open: false, title: '', message: '
 export function confirmDialog(title: string, message: string, danger = false, confirmText = ''): Promise<boolean> {
   return new Promise((resolve) => {
     Object.assign(dialog, {
-      open: true, title, message, danger, inputs: undefined, choices: undefined, remember: undefined,
+      open: true, title, message, danger, inputs: undefined, choices: undefined, note: undefined,
       confirmText: confirmText || (danger ? t('删除') : t('确定')),
       resolve: (v: string[] | null) => resolve(v !== null),
     })
@@ -162,31 +161,27 @@ export function promptDialog(
 ): Promise<string[] | null> {
   return new Promise((resolve) => {
     Object.assign(dialog, {
-      open: true, title, message, danger: false, confirmText: t('确定'), choices: undefined, remember: undefined,
+      open: true, title, message, danger: false, confirmText: t('确定'), choices: undefined, note: undefined,
       inputs: inputs.map((i) => ({ ...i, value: i.value ?? '' })),
       resolve,
     })
   })
 }
 
-/**
- * Asks to pick one of choices, optionally with a box to remember the pick.
- * Resolves with the pick and the box, or null when cancelled.
- */
+/** Asks to pick one of choices; resolves with the pick, or null when cancelled. */
 export function choiceDialog(
   title: string,
   message: string,
   choices: DialogChoice[],
   selected: string,
-  opts: { confirmText?: string; rememberText?: string } = {},
-): Promise<{ value: string; remember: boolean } | null> {
+  opts: { confirmText?: string; note?: string } = {},
+): Promise<string | null> {
   return new Promise((resolve) => {
     Object.assign(dialog, {
       open: true, title, message, danger: false, inputs: undefined,
-      choices, choice: selected,
-      remember: opts.rememberText ? false : undefined, rememberText: opts.rememberText,
+      choices, choice: selected, note: opts.note,
       confirmText: opts.confirmText || t('确定'),
-      resolve: (v: string[] | null) => resolve(v ? { value: v[0], remember: v[1] === '1' } : null),
+      resolve: (v: string[] | null) => resolve(v ? v[0] : null),
     })
   })
 }

@@ -169,3 +169,24 @@ func TestAppearancePart(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyTestMode(t *testing.T) {
+	old := backupDoc{Settings: json.RawMessage(`{"testUrl":"x"}`), Android: json.RawMessage(`{"latencyMode":"url"}`)}
+	s := store.DefaultSettings()
+	legacyTestMode(&s, old)
+	if s.TestMode != store.TestURL {
+		t.Errorf("old Android backup: %q", s.TestMode)
+	}
+	// a backup with the shared setting keeps it
+	s = store.DefaultSettings()
+	legacyTestMode(&s, backupDoc{Settings: json.RawMessage(`{"testMode":"tcp"}`), Android: json.RawMessage(`{"latencyMode":"url"}`)})
+	if s.TestMode != store.TestTCP {
+		t.Errorf("shared setting overridden: %q", s.TestMode)
+	}
+	// from Windows: no preferences at all
+	s = store.DefaultSettings()
+	legacyTestMode(&s, backupDoc{Settings: json.RawMessage(`{}`)})
+	if s.TestMode != store.TestTCP {
+		t.Errorf("without preferences: %q", s.TestMode)
+	}
+}

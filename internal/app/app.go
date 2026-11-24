@@ -330,7 +330,7 @@ func coreSettings(s store.Settings) store.Settings {
 	s.Theme, s.AccentColor, s.Language = "", "", ""
 	s.LightLevel, s.DarkLevel, s.RecentColors = 0, 0, nil
 	s.AutoStartConnect = false
-	s.TestURL, s.TestTimeout, s.TestConcurrency, s.SortAfterTest = "", 0, 0, ""
+	s.TestURL, s.TestTimeout, s.TestConcurrency, s.TestMode, s.SortAfterTest = "", 0, 0, "", ""
 	s.SubUserAgent, s.SubUpdateByProxy = "", false
 	s.SubAutoUpdate, s.SubUpdateHours, s.AutoCheckUpdate = false, 0, false
 	s.CountrySource, s.CountryNoticeShown, s.RuleTipShown = "", false, false

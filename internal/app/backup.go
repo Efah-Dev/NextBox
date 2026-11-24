@@ -53,7 +53,7 @@ var appearanceSettings = []string{
 // when a backup comes from another system.
 var portableSettings = []string{
 	"remoteDns", "directDns", "dnsOverrides", "enableIpv6", "sniff",
-	"testUrl", "testTimeout", "testConcurrency",
+	"testUrl", "testTimeout", "testConcurrency", "testMode",
 	"subUserAgent", "subUpdateByProxy", "subAutoUpdate", "subUpdateHours",
 	"countrySource", "autoCheckUpdate", "sortAfterTest",
 }
@@ -288,6 +288,9 @@ func (a *App) ImportBackup(path string, o BackupOptions) (string, error) {
 			return "", err
 		}
 		remapPolicies(&next, policyMap)
+		if o.Settings {
+			legacyTestMode(&next, doc)
+		}
 		if err := a.SaveSettings(next); err != nil {
 			return "", err
 		}
@@ -351,6 +354,22 @@ func mergeSettings(cur store.Settings, imported json.RawMessage, keys []string, 
 		return cur, errors.New(i18n.T("备份里的设置已损坏"))
 	}
 	return next, nil
+}
+
+// legacyTestMode takes the speed test method of an Android backup made
+// before it was a shared setting (the "latencyMode" of its preferences).
+func legacyTestMode(s *store.Settings, doc backupDoc) {
+	var in map[string]json.RawMessage
+	json.Unmarshal(doc.Settings, &in)
+	if _, ok := in["testMode"]; ok {
+		return
+	}
+	var prefs struct {
+		LatencyMode string `json:"latencyMode"`
+	}
+	if json.Unmarshal(doc.Android, &prefs) == nil && (prefs.LatencyMode == store.TestTCP || prefs.LatencyMode == store.TestURL) {
+		s.TestMode = prefs.LatencyMode
+	}
 }
 
 // remapPolicies points imported rules at the policy groups as they were

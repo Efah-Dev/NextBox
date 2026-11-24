@@ -12,6 +12,8 @@ export interface DnsOverride {
   disabled?: boolean
 }
 
+export type TestMode = 'tcp' | 'url'
+
 export interface Settings {
   theme: 'auto' | 'light' | 'dark'
   accentColor: string
@@ -55,7 +57,8 @@ export interface Settings {
   testUrl: string
   testTimeout: number
   testConcurrency: number
-  sortAfterTest: '' | 'latency' | 'none' // after a speed test of a group: ask, sort by latency, keep the order
+  testMode: TestMode // UDP protocols and chain proxies are always tested by URL
+  sortAfterTest: '' | 'default' | 'latency' | 'none' // after a speed test of a group: not chosen yet (asked once), the subscription's order, by latency, as it is
   subUserAgent: string
   subUpdateByProxy: boolean
   subAutoUpdate: boolean
@@ -272,7 +275,7 @@ export interface Profile {
   latency: number
   latencyError?: string
   /** how the latency was measured */
-  latencyKind?: 'tcp' | 'url'
+  latencyKind?: TestMode
   testedAt?: number
   upload: number
   download: number
@@ -422,7 +425,7 @@ export interface LatencyResult {
   /** where the node's traffic leaves, when it was looked up */
   exit?: { ip: string; country: string }
   /** how it was measured */
-  kind?: 'tcp' | 'url'
+  kind?: TestMode
 }
 
 const w = window as any
@@ -469,7 +472,8 @@ export const api = {
   exportLinks: (ids: number[]) => call<string>('ExportLinks', ids),
   selectProfile: (id: number) => call<void>('SelectProfile', id),
 
-  testLatency: (ids: number[], mode: 'url' | 'tcp', sortAfter = false) => call<void>('TestLatency', ids, mode, sortAfter),
+  /** sortBy: how the groups are sorted afterwards ('' keeps them as they are) */
+  testLatency: (ids: number[], mode: TestMode, sortBy = '') => call<void>('TestLatency', ids, mode, sortBy),
   stopTest: () => call<void>('StopTest'),
 
   getConnections: () => call<Connections>('GetConnections'),

@@ -29,6 +29,8 @@ type LatencyResult struct {
 // URLOnly reports whether a node can only be measured with a URL test: a
 // protocol on top of UDP (QUIC) does not answer a TCP handshake, and a TCP
 // test of a chain proxy would only reach its first hop.
+// (keep in sync with urlOnly in frontend/src/views/Nodes.vue and with
+// Repo.urlOnly of NextBox for Android)
 func URLOnly(p store.Profile) bool {
 	switch p.Type {
 	case "hysteria", "hysteria2", "tuic", "wireguard", store.TypeChain:
@@ -37,7 +39,9 @@ func URLOnly(p store.Profile) bool {
 		quic, _ := p.Outbound["quic"].(bool)
 		return quic
 	}
-	return false
+	// vmess / vless / trojan over the QUIC transport
+	tr, _ := p.Outbound["transport"].(map[string]any)
+	return tr != nil && tr["type"] == "quic"
 }
 
 // Progress receives the events of a latency test: Start when a node's

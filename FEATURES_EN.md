@@ -20,7 +20,7 @@
 - **Flags and search by country**: a flag in front of every node, from the exit IP by default or the server IP; searching "Hong Kong" finds HK, 🇭🇰 and 香港
 - **Chain proxies**: traffic through 2 to 8 nodes in turn, members from any group, the whole chain can be tested before saving
 - **Switching without dropping**: the nodes of a group are loaded at once, so switching does not restart the core or break open connections
-- **Latency tests**: URL and TCP tests; UDP protocols and chains always use the URL test. After testing a whole group the nodes can be sorted by latency, asked each time or remembered (*Settings → Subscriptions & tests → After a test*)
+- **Latency tests**: one click tests the way the settings say, TCP by default or URL; UDP protocols and chains always use the URL test. After testing a whole group the nodes go back to the order of the subscription, are sorted by latency or stay as they are, asked once on the first test and changed later in *Settings → Subscriptions & tests*
 
 ### Routing
 

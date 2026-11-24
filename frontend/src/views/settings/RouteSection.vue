@@ -16,7 +16,7 @@
 // the section is seen, a guide helps choosing the look (RouteStyleGuide).
 import { t } from '../../i18n'
 import ResolveDns from './ResolveDns.vue'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import Card from '../../components/Card.vue'
 import Icon from '../../components/Icon.vue'
 import Switch from '../../components/Switch.vue'
@@ -167,11 +167,20 @@ const listSorter = useDragSort({
 })
 
 // ---- rules
+// The rule just added stands out (accent border and a 新规则 tag) until the
+// focus leaves its row.
+const freshRule = shallowRef<object | null>(null)
+function leaveFresh(e: FocusEvent, r: object) {
+  const away = !(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)
+  if (away && r === freshRule.value) clearFresh()
+}
+const clearFresh = () => (freshRule.value = null)
 async function addRule() {
   // new rules go before the mainland China bypass, so that they apply
   const cn = form.rules.findIndex((r) => r.kind === 'scene' && r.values[0] === 'cn')
   const at = cn < 0 ? form.rules.length : cn
   form.rules.splice(at, 0, { kind: 'suffix', values: [], target: 'proxy' })
+  freshRule.value = form.rules[at]
   await nextTick()
   const rows = view.value === 'path' ? pathEl.value?.querySelectorAll<HTMLElement>('.stn') : listEl.value?.querySelectorAll<HTMLElement>('.rule')
   const shown = view.value === 'path' ? pathItems.value : ownItems.value
@@ -399,7 +408,7 @@ const verdict = computed(() => {
           <Icon :name="textMode ? 'route' : 'edit'" :size="13" /> {{ textMode ? t('返回路径') : t('文本模式') }}
         </button>
         <button v-if="!textMode" class="btn small" :title="t('把域名、IP、程序等放进一个有名称的规则集，统一指定去向')" @click="newSetOpen = true"><Icon name="layers" :size="13" /> {{ t('添加规则集') }}</button>
-        <button v-if="!textMode" class="btn small primary-soft" @click="addRule"><Icon name="plus" :size="13" /> {{ t('添加规则') }}</button>
+        <button v-if="!textMode" class="btn small primary" @click="addRule"><Icon name="plus" :size="13" /> {{ t('添加规则') }}</button>
       </div>
 
       <div v-if="!textMode" class="path">
@@ -432,9 +441,10 @@ const verdict = computed(() => {
             v-for="(x, k) in pathItems"
             :key="x.i"
             class="stn"
-            :class="[stnClass(x.i + 1), pathSorter.classes(k), { android: x.r.kind === 'package' }]"
+            :class="[stnClass(x.i + 1), pathSorter.classes(k), { android: x.r.kind === 'package', fresh: x.r === freshRule }]"
             :style="pathSorter.style(k)"
             @pointerdown="pathSorter.start($event, k)"
+            @focusout="leaveFresh($event, x.r)"
           >
             <span class="no">{{ k + 2 }}</span>
             <div class="box">
@@ -465,6 +475,7 @@ const verdict = computed(() => {
               </template>
 
               <RuleFields v-else :rule="x.r" :note="skipNote(x.r)" @remove="removeRule(x.i)" />
+              <span v-if="x.r === freshRule" class="fresh-tag">{{ t('新规则') }}</span>
             </div>
           </div>
         </div>
@@ -521,20 +532,22 @@ const verdict = computed(() => {
             <Icon :name="textMode ? 'settings' : 'edit'" :size="13" /> {{ textMode ? t('返回列表') : t('文本模式') }}
           </button>
           <button v-if="!textMode" class="btn small" :title="t('把域名、IP、程序等放进一个有名称的规则集，统一指定去向')" @click="newSetOpen = true"><Icon name="layers" :size="13" /> {{ t('添加规则集') }}</button>
-          <button v-if="!textMode" class="btn small primary-soft" @click="addRule"><Icon name="plus" :size="13" /> {{ t('添加规则') }}</button>
+          <button v-if="!textMode" class="btn small primary" @click="addRule"><Icon name="plus" :size="13" /> {{ t('添加规则') }}</button>
         </div>
         <div v-if="!textMode" ref="listEl" class="rules" :class="{ 'sort-settling': listSorter.drag.settling }">
           <div
             v-for="(x, k) in ownItems"
             :key="x.i"
             class="rule"
-            :class="[{ off: x.r.disabled || x.r.kind === 'package', hit: hitRule(x.i) }, listSorter.classes(k)]"
+            :class="[{ off: x.r.disabled || x.r.kind === 'package', hit: hitRule(x.i), fresh: x.r === freshRule }, listSorter.classes(k)]"
             :style="listSorter.style(k)"
             @pointerdown="listSorter.start($event, k)"
+            @focusout="leaveFresh($event, x.r)"
           >
             <Icon class="grip" name="grip" :size="14" :stroke="3" />
             <span class="num mono">{{ k + 1 }}</span>
             <RuleFields :rule="x.r" :note="skipNote(x.r)" @remove="removeRule(x.i)" />
+            <span v-if="x.r === freshRule" class="fresh-tag">{{ t('新规则') }}</span>
           </div>
           <div v-if="!ownItems.length" class="empty-rules faint">
             {{ t('还没有规则。常用场景已经能满足大多数需要；想让某个网站或程序单独直连、走代理或走某个分组代理，就添加一条规则。') }}
@@ -918,6 +931,39 @@ select.to-proxy {
   border: 1px solid var(--line);
   background: var(--card);
   touch-action: none;
+}
+/* the rule just added */
+.box,
+.rule {
+  position: relative;
+}
+.stn.fresh .box,
+.rule.fresh {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--card));
+  box-shadow: 0 0 0 3px var(--accent-soft-2);
+}
+/* still empty, but not faded like a step that is skipped */
+.stn.fresh.skip .box {
+  opacity: 1;
+}
+.stn.fresh .no {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.fresh-tag {
+  position: absolute;
+  top: -8px;
+  left: 30px;
+  padding: 0 7px;
+  line-height: 15px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  pointer-events: none;
 }
 .rule.off > :deep(.what) {
   opacity: 0.55;
