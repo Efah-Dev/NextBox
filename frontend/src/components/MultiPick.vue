@@ -129,7 +129,7 @@ onBeforeUnmount(() => listen(false))
     <span class="pick-text">{{ summary || placeholder || t('请选择') }}</span>
   </button>
   <Teleport to="body">
-    <Transition name="pop">
+    <Transition name="nb-pop">
       <div
         v-if="open"
         ref="pop"
@@ -282,14 +282,5 @@ onBeforeUnmount(() => listen(false))
 }
 .spacer {
   flex: 1;
-}
-.pop-enter-active,
-.pop-leave-active {
-  transition: opacity 0.12s, margin 0.12s;
-}
-.pop-enter-from,
-.pop-leave-to {
-  opacity: 0;
-  margin-top: -4px;
 }
 </style>

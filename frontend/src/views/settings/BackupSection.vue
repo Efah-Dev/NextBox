@@ -2,7 +2,7 @@
 // 数据与备份: where the data lives, encrypting the node list on disk, and
 // password-protected backups that NextBox for Android can open too.
 import { t } from '../../i18n'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import Card from '../../components/Card.vue'
 import Icon from '../../components/Icon.vue'
 import Switch from '../../components/Switch.vue'
@@ -13,7 +13,6 @@ import { loadProfiles, state } from '../../state'
 import { confirmDialog, promptDialog, run, toast } from '../../util'
 import { refreshPolicies } from '../../policies'
 
-defineProps<{ index: number }>()
 
 // ---- encryption at rest ----
 const encryption = computed(() => state.app?.encryption ?? '')
@@ -88,7 +87,19 @@ const importOpen = ref(false)
 const imp = reactive({ path: '', password: '', info: null as BackupInfo | null, error: '', busy: false, nodes: true, replace: false, rules: true, appearance: true, settings: false })
 async function openImport() {
   const path = await run(() => api.chooseBackup())
-  if (!path) return
+  if (path) openFile(path)
+}
+// a backup dropped on the window (importer.ts)
+watch(
+  () => state.backupFile,
+  (path) => {
+    if (!path) return
+    state.backupFile = ''
+    openFile(path)
+  },
+  { immediate: true },
+)
+function openFile(path: string) {
   Object.assign(imp, { path, password: '', info: null, error: '', busy: false, replace: false })
   importOpen.value = true
   inspect()
@@ -127,7 +138,7 @@ const fileName = computed(() => imp.path.split(/[\\/]/).pop())
 </script>
 
 <template>
-  <Card id="sec-backup" :title="t('数据与备份')" :index="index">
+  <Card id="sec-backup" :title="t('数据与备份')">
     <div class="form-row">
       <div class="label">{{ t('数据目录') }}</div>
       <div class="control">
@@ -173,7 +184,7 @@ const fileName = computed(() => imp.path.split(/[\\/]/).pop())
       <label class="check"><input v-model="exp.nodes" type="checkbox" /> {{ t('节点与订阅') }}<span class="faint">{{ t('含链式代理和分组代理') }}</span></label>
       <label class="check"><input v-model="exp.rules" type="checkbox" /> {{ t('分流规则') }}<span class="faint">{{ t('{0} 条规则', state.app?.settings.rules.filter((r) => r.kind !== 'ads' && r.kind !== 'scene').length ?? 0) }}</span></label>
       <label class="check"><input v-model="exp.appearance" type="checkbox" /> {{ t('外观') }}<span class="faint">{{ t('主题、主题色、语言') }}</span></label>
-      <label class="check"><input v-model="exp.settings" type="checkbox" /> {{ t('其他设置') }}<span class="faint">{{ t('DNS、测速、端口、TUN 等；端口和 TUN 只在 Windows 上导入') }}</span></label>
+      <label class="check"><input v-model="exp.settings" type="checkbox" /> {{ t('其他设置') }}<span class="faint">{{ t('DNS、测试、端口、TUN 等；端口和 TUN 只在 Windows 上导入') }}</span></label>
       <div class="enc-row">
         <span><Icon name="lock" :size="14" /> {{ t('用密码加密') }}</span>
         <Switch v-model="exp.encrypt" />
@@ -228,7 +239,7 @@ const fileName = computed(() => imp.path.split(/[\\/]/).pop())
         <label v-if="imp.info.hasAppearance" class="check"><input v-model="imp.appearance" type="checkbox" /> {{ t('外观') }}<span class="faint">{{ t('主题、主题色、语言') }}</span></label>
         <label v-if="imp.info.hasSettings" class="check">
           <input v-model="imp.settings" type="checkbox" /> {{ t('其他设置') }}
-          <span class="faint">{{ foreign ? t('来自其他系统：只导入 DNS、测速等通用设置') : t('包括 DNS、端口、TUN 等') }}</span>
+          <span class="faint">{{ foreign ? t('来自其他系统：只导入 DNS、测试等通用设置') : t('包括 DNS、端口、TUN 等') }}</span>
         </label>
         <p v-if="foreign && imp.rules && imp.info.androidRules" class="faint android-note">
           {{ t('其中 {0} 条按安卓应用分流，只在 Android 版生效，会原样保留，再导出给手机时不会丢。', imp.info.androidRules) }}

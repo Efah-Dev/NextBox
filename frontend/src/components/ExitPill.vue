@@ -42,7 +42,7 @@ const ipText = computed(() => {
 const title = computed(() => {
   const e = exit.value
   if (!e || e.checking) return t('正在通过节点访问 Cloudflare，检测落地 IP…')
-  if (e.error && e.failed === 'test') return t('无法通过节点访问测速地址：{0}。点击重新检测', e.error)
+  if (e.error && e.failed === 'test') return t('无法通过节点访问测试地址：{0}。点击重新检测', e.error)
   if (e.error) return t('无法通过节点访问 Cloudflare：{0}。点击重新检测', e.error)
   const where = e.country ? countryName(e.country) : t('未知地区')
   const slow = e.latency >= 300 ? t('，延迟较高') : ''

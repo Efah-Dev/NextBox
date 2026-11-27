@@ -3,8 +3,10 @@ package sub
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"nextbox/internal/i18n"
@@ -24,6 +26,9 @@ type Result struct {
 	// Clash is what a Clash subscription has besides its proxies (proxy
 	// groups, rules, DNS settings); nil for other formats.
 	Clash *clash.Extras
+	// Title is the name the server gives the subscription (profile-title,
+	// or the file name of Content-Disposition); "" when it gives none.
+	Title string
 }
 
 // Fetch downloads a subscription. proxy is an optional "http://host:port"
@@ -70,7 +75,36 @@ func Fetch(ctx context.Context, rawURL, userAgent, proxy string) (*Result, error
 		Skipped: skipped,
 		Usage:   parseUserInfo(resp.Header.Get("subscription-userinfo")),
 		Clash:   ex,
+		Title:   Title(resp.Header),
 	}, nil
+}
+
+// Title reads the subscription's name from the response headers:
+// "profile-title" (plain or "base64:…"), else the file name in
+// Content-Disposition without its extension.
+func Title(h http.Header) string {
+	if t := strings.TrimSpace(h.Get("profile-title")); t != "" {
+		if rest, ok := strings.CutPrefix(t, "base64:"); ok {
+			for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+				if b, err := enc.DecodeString(strings.TrimSpace(rest)); err == nil {
+					return strings.TrimSpace(string(b))
+				}
+			}
+			return ""
+		}
+		return t
+	}
+	if _, params, err := mime.ParseMediaType(h.Get("Content-Disposition")); err == nil {
+		name := strings.TrimSpace(params["filename"]) // filename*=UTF-8''… is decoded too
+		if dot := strings.LastIndexByte(name, '.'); dot > 0 {
+			switch strings.ToLower(name[dot:]) {
+			case ".yaml", ".yml", ".txt", ".json", ".conf":
+				name = name[:dot]
+			}
+		}
+		return strings.TrimSpace(name)
+	}
+	return ""
 }
 
 // parseUserInfo parses "upload=1; download=2; total=3; expire=4".

@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"nextbox/internal/i18n"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +29,8 @@ type trayState struct {
 	cancel context.CancelFunc
 	sig    string            // what the menu shows, see rebuildTray
 	icons  map[string][]byte // keyed by proxy mode: "", "system", "tun"
+	popup  *trayPopup        // NextBox's own menu (traypopup_windows.go)
+	liveAt time.Time         // the last render of a test's progress
 }
 
 const trayNodeLimit = 20 // nodes listed directly in the tray menu
@@ -97,7 +101,8 @@ func (a *App) onTrayExit() {
 }
 
 func (a *App) onTrayReady() {
-	systray.SetOnTapped(a.ShowWindow) // left click opens the window, right click the menu
+	systray.SetOnTapped(a.ShowWindow)            // left click opens the window,
+	systray.SetOnSecondaryTapped(a.openTrayMenu) // right click NextBox's menu
 	a.tray.mu.Lock()
 	a.tray.ready = true
 	a.tray.mu.Unlock()
@@ -114,7 +119,10 @@ func (a *App) refreshTray() {
 	if a.tray.timer != nil {
 		a.tray.timer.Stop()
 	}
-	a.tray.timer = time.AfterFunc(250*time.Millisecond, a.rebuildTray)
+	a.tray.timer = time.AfterFunc(250*time.Millisecond, func() {
+		a.rebuildTray()
+		a.updateTrayMenu()
+	})
 }
 
 func (a *App) rebuildTray() {
@@ -150,18 +158,7 @@ func (a *App) rebuildTray() {
 			}
 		}})
 	}
-	add(trayItem{label: i18n.T("TUN 模式"), check: true, checked: st.Settings.TunEnabled, fn: func() {
-		s := a.store.Settings()
-		if !s.TunEnabled && !st.Elevated && !a.serviceReady() {
-			a.ShowWindow()
-			a.emitError(i18n.T("TUN 模式需要管理员权限，安装服务模式或以管理员运行。"))
-			return
-		}
-		s.TunEnabled = !s.TunEnabled
-		if err := a.SaveSettings(s); err != nil {
-			a.emitError(err.Error())
-		}
-	}})
+	add(trayItem{label: i18n.T("TUN 模式"), check: true, checked: st.Settings.TunEnabled, fn: a.toggleTun})
 
 	// Route modes and nodes are listed in the main menu rather than in
 	// submenus: the tray sits at the right edge of the screen, so Windows
@@ -298,4 +295,206 @@ func (a *App) trayReady() bool {
 	a.tray.mu.Lock()
 	defer a.tray.mu.Unlock()
 	return a.tray.ready
+}
+
+// ---------------------------------------------------------------- NextBox's own menu
+
+// Tray menu parts the user can hide (Settings.TrayItems; nil = all).
+var trayParts = []string{"quick", "mode", "nodes", "policies", "latency"}
+
+func (a *App) trayShows(part string, s store.Settings) bool {
+	return s.TrayItems == nil || slices.Contains(s.TrayItems, part)
+}
+
+// trayView is what traymenu.html renders.
+type trayView struct {
+	Theme      string            `json:"theme"` // auto, light, dark
+	Dark       bool              `json:"dark"`  // the theme in effect (auto follows Windows)
+	Accent     string            `json:"accent"`
+	Parts      map[string]bool   `json:"parts"`
+	Running    bool              `json:"running"`
+	Testing    bool              `json:"testing"` // a latency test runs
+	Since      int64             `json:"since"`   // ms
+	Mode       string            `json:"mode"`
+	SysProxy   bool              `json:"sysProxy"`
+	Tun        bool              `json:"tun"`
+	Current    string            `json:"current"` // the node, or the policy group in use
+	Via        string            `json:"via"`     // its member, when a policy group is used
+	Latency    int               `json:"latency"` // of the node in use
+	Version    string            `json:"version"`
+	Groups     []trayGroup       `json:"groups"`
+	Policies   []trayPolicy      `json:"policies"`
+	Labels     map[string]string `json:"l"`
+	GroupID    int64             `json:"groupId"`    // the group the node in use is in
+	PolicyID   int64             `json:"policyId"`   // the policy group in use
+	SelectedID int64             `json:"selectedId"` // the node in use
+}
+
+type trayGroup struct {
+	ID    int64      `json:"id"`
+	Name  string     `json:"name"`
+	Count int        `json:"count"`
+	Nodes []trayNode `json:"nodes"`
+}
+
+type trayNode struct {
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	Latency int    `json:"latency"`
+	Country string `json:"country,omitempty"` // ISO code, for the flag
+}
+
+type trayPolicy struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Auto bool   `json:"auto"`
+	Now  string `json:"now"`
+}
+
+var trayLabels = []string{
+	"未连接", "已连接", "系统代理", "设为系统代理", "连接后让浏览器等遵循 Windows 代理设置的程序经过 NextBox", "接管所有程序的流量", "TUN 模式", "全局", "规则", "直连", "节点", "分组代理", "退出",
+	"返回", "搜索节点", "没有节点", "自动选最快", "手动选择", "当前", "没有找到", "经", "测延迟", "停止",
+}
+
+func (a *App) trayState() trayView {
+	st := a.GetState()
+	s := st.Settings
+	v := trayView{
+		Theme: s.Theme, Dark: s.Theme == "dark" || (s.Theme != "light" && sys.SystemDark()), Accent: s.AccentColor, Running: st.Running, Testing: st.Testing, Mode: s.RouteMode,
+		SysProxy: s.SystemProxy, Tun: s.TunEnabled, Version: Version, Parts: map[string]bool{},
+		Labels: map[string]string{}, SelectedID: st.SelectedID, PolicyID: a.store.SelectedPolicy(),
+	}
+	if st.Running {
+		v.Since = st.StartedAt
+	}
+	for _, p := range trayParts {
+		v.Parts[p] = a.trayShows(p, s)
+	}
+	for _, l := range trayLabels {
+		v.Labels[l] = i18n.T(l)
+	}
+	if p, ok := a.store.Profile(st.SelectedID); ok {
+		v.Current, v.Latency, v.GroupID = p.Name, p.Latency, p.GroupID
+	}
+	if pol, ok := a.store.Policy(v.PolicyID); ok {
+		v.Current = pol.Name
+		v.Via = a.policyNowName(pol.ID)
+	}
+	for _, g := range a.store.Groups() {
+		tg := trayGroup{ID: g.ID, Name: g.Name}
+		if g.Default {
+			tg.Name = i18n.T("默认分组")
+		}
+		for _, p := range a.store.Profiles(g.ID) {
+			tg.Nodes = append(tg.Nodes, trayNode{ID: p.ID, Name: p.Name, Latency: p.Latency, Country: nodeCountryCode(p, s.CountrySource)})
+		}
+		tg.Count = len(tg.Nodes)
+		if tg.Count > 0 || g.ID == st.CurrentGroupID {
+			v.Groups = append(v.Groups, tg)
+		}
+	}
+	for _, p := range a.store.Policies() {
+		v.Policies = append(v.Policies, trayPolicy{ID: p.ID, Name: p.Name, Auto: p.Mode == store.PolicyAuto, Now: a.policyNowName(p.ID)})
+	}
+	return v
+}
+
+// openTrayMenu is the right click on the icon: NextBox's menu, or the plain
+// Windows one when the menu window cannot be shown.
+// It runs on the tray's thread, which must not wait: the menu window is
+// set up (the first time) and shown from another goroutine.
+func (a *App) openTrayMenu() {
+	if a.tray.popup == nil {
+		a.tray.popup = &trayPopup{onMessage: a.trayAction, files: a.ui, log: a.log}
+	}
+	p := a.tray.popup
+	if p.failed {
+		systray.ShowMenu()
+		return
+	}
+	go func() {
+		b, _ := json.Marshal(a.trayState())
+		if err := p.Show(string(b)); err != nil {
+			// from now on a right click opens the plain Windows menu
+			a.log(i18n.T("无法显示托盘菜单窗口，改用系统菜单"))
+			systray.SetOnSecondaryTapped(nil)
+		}
+	}()
+}
+
+// trayLive shows a latency test's results in the open menu as they come,
+// a few times a second at most.
+func (a *App) trayLive() {
+	p := a.tray.popup
+	if p == nil || !p.open.Load() {
+		return
+	}
+	a.tray.mu.Lock()
+	if time.Since(a.tray.liveAt) < 300*time.Millisecond {
+		a.tray.mu.Unlock()
+		return
+	}
+	a.tray.liveAt = time.Now()
+	a.tray.mu.Unlock()
+	a.updateTrayMenu()
+}
+
+// updateTrayMenu renders the state again while the menu is open.
+func (a *App) updateTrayMenu() {
+	if p := a.tray.popup; p != nil {
+		b, _ := json.Marshal(a.trayState())
+		p.Update(string(b))
+	}
+}
+
+// trayAction runs what was picked in the menu.
+func (a *App) trayAction(msg string) {
+	var m struct {
+		A  string `json:"a"`
+		ID int64  `json:"id"`
+		V  string `json:"v"`
+	}
+	if json.Unmarshal([]byte(msg), &m) != nil {
+		return
+	}
+	s := a.store.Settings()
+	switch m.A {
+	case "toggle":
+		if a.isRunning() {
+			a.Disconnect()
+		} else if err := a.Connect(); err != nil {
+			a.ShowWindow()
+			a.emitError(err.Error())
+		}
+	case "sysProxy":
+		s.SystemProxy = !s.SystemProxy
+		if err := a.SaveSettings(s); err != nil {
+			a.emitError(err.Error())
+		}
+	case "tun":
+		a.toggleTun()
+	case "mode":
+		s.RouteMode = m.V
+		if err := a.SaveSettings(s); err != nil {
+			a.emitError(err.Error())
+		}
+	case "node": // the menu stays open: the new pick shows in it
+		if err := a.SelectProfile(m.ID); err != nil {
+			a.emitError(err.Error())
+		}
+	case "policy":
+		if err := a.UsePolicy(m.ID); err != nil {
+			a.emitError(err.Error())
+		}
+	case "testGroup": // the button of a subscription: test it, or stop the test
+		if a.GetState().Testing {
+			a.StopTest()
+		} else if err := a.testGroup(m.ID); err != nil {
+			a.emitError(err.Error())
+		}
+	case "quit":
+		a.tray.popup.Hide()
+		a.Quit()
+	}
+	a.updateTrayMenu()
 }

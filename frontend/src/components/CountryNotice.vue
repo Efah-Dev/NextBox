@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Shown once, the first time nodes are added: explains where the flags come
-// from and lets the user choose (Settings → 订阅与测速 changes it later).
+// from and lets the user choose (Settings → 订阅与测试 changes it later).
 import { t } from '../i18n'
 import { computed, ref, watch } from 'vue'
 import Modal from './Modal.vue'
@@ -55,7 +55,7 @@ const options = [
         </span>
       </button>
     </div>
-    <p class="faint note">{{ t('以后可以在「设置 → 订阅与测速」里更改。') }}</p>
+    <p class="faint note">{{ t('以后可以在「设置 → 订阅与测试」里更改。') }}</p>
     <template #footer>
       <button class="btn primary" @click="done(choice)">{{ t('好的') }}</button>
     </template>

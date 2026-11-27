@@ -3,7 +3,7 @@ import { onBeforeUnmount, ref } from 'vue'
 import Icon from './Icon.vue'
 import type { MenuItem } from '../util'
 
-defineProps<{ items: MenuItem[]; icon?: string; label?: string }>()
+defineProps<{ items: MenuItem[]; icon?: string; label?: string; btnClass?: string; title?: string }>()
 
 const open = ref(false)
 const root = ref<HTMLElement>()
@@ -26,11 +26,11 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
 
 <template>
   <div ref="root" class="menu-wrap">
-    <button class="btn" :class="{ icon: !label }" @click="toggle">
+    <button class="btn" :class="[{ icon: !label }, btnClass]" :title="title" @click="toggle">
       <Icon :name="icon ?? 'more'" :size="16" :stroke="label ? 2 : 3" />
       <span v-if="label">{{ label }}</span>
     </button>
-    <Transition name="pop">
+    <Transition name="nb-pop">
       <div v-if="open" class="menu">
         <button
           v-for="(it, i) in items"
@@ -114,14 +114,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
   opacity: 0.45;
   pointer-events: none;
 }
-.pop-enter-active,
-.pop-leave-active {
-  transition: opacity 0.14s, transform 0.16s;
+.nb-pop-enter-active,
+.nb-pop-leave-active {
   transform-origin: top right;
-}
-.pop-enter-from,
-.pop-leave-to {
-  opacity: 0;
-  transform: scale(0.95) translateY(-4px);
 }
 </style>

@@ -358,19 +358,78 @@ func TestChainMembers(t *testing.T) {
 func TestSpeedTestSettings(t *testing.T) {
 	// not chosen yet: the first test of a group asks once
 	s := open(t, t.TempDir()).Settings()
-	if s.TestMode != TestTCP || s.SortAfterTest != SortAsk {
+	if s.TestMode != TestURL || s.SortAfterTest != SortAsk {
 		t.Fatalf("new: test mode %q, sort %q", s.TestMode, s.SortAfterTest)
 	}
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"testMode": "url", "sortAfterTest": "none"}`), 0o644)
+	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"testMode": "tcp", "sortAfterTest": "none"}`), 0o644)
 	s = open(t, dir).Settings()
-	if s.TestMode != TestURL || s.SortAfterTest != SortNone {
+	if s.TestMode != TestTCP || s.SortAfterTest != SortNone {
 		t.Fatalf("choices lost: %q %q", s.TestMode, s.SortAfterTest)
 	}
 	dir = t.TempDir()
 	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"testMode": "x", "sortAfterTest": "x"}`), 0o644)
 	s = open(t, dir).Settings()
-	if s.TestMode != TestTCP || s.SortAfterTest != SortAsk {
+	if s.TestMode != TestURL || s.SortAfterTest != SortAsk {
 		t.Fatalf("nonsense kept: %q %q", s.TestMode, s.SortAfterTest)
+	}
+}
+
+// The connection can use a policy group; picking a node or deleting the
+// group goes back to the node, and a backup restored in full keeps it.
+func TestSelectedPolicy(t *testing.T) {
+	s := open(t, t.TempDir())
+	g, _ := s.AddGroup(Group{Name: "g"})
+	added, err := s.AddProfiles(g.ID, []Profile{node("a"), node("b")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetSelected(added[0].ID)
+	p, _ := s.SavePolicy(Policy{Name: "auto", Match: PolicyManual, Members: []int64{added[0].ID, added[1].ID}, Mode: PolicyAuto, Interval: 3})
+	if err := s.SetSelectedPolicy(999); err == nil {
+		t.Error("an unknown policy group was accepted")
+	}
+	if err := s.SetSelectedPolicy(p.ID); err != nil || s.SelectedPolicy() != p.ID || s.SelectedID() != added[0].ID {
+		t.Fatalf("policy %d, node %d, %v", s.SelectedPolicy(), s.SelectedID(), err)
+	}
+
+	raw, _ := s.ExportData()
+	other := open(t, t.TempDir())
+	if _, err := other.ImportData(raw, true); err != nil {
+		t.Fatal(err)
+	}
+	if other.SelectedPolicy() != p.ID {
+		t.Errorf("restored policy %d", other.SelectedPolicy())
+	}
+	if q, _ := other.Policy(p.ID); q.TestInterval() != 3 {
+		t.Errorf("restored interval %d", q.Interval)
+	}
+
+	s.SetSelected(added[1].ID)
+	if s.SelectedPolicy() != 0 {
+		t.Error("picking a node kept the policy group")
+	}
+	s.SetSelectedPolicy(p.ID)
+	s.DeletePolicy(p.ID)
+	if s.SelectedPolicy() != 0 {
+		t.Error("a deleted policy group is still used")
+	}
+	if (Policy{}).TestInterval() != DefaultPolicyInterval || (Policy{Interval: 99999}).TestInterval() != MaxPolicyInterval {
+		t.Error("TestInterval bounds")
+	}
+}
+
+// New installs show the rules as cards; older settings keep their look, and
+// the removed service catalog becomes cards.
+func TestRouteView(t *testing.T) {
+	if v := open(t, t.TempDir()).Settings().RouteView; v != "cards" {
+		t.Errorf("new install: %q", v)
+	}
+	for in, want := range map[string]string{`{}`: "", `{"routeView":"path"}`: "path", `{"routeView":"apps"}`: "cards"} {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "settings.json"), []byte(in), 0o644)
+		if v := open(t, dir).Settings().RouteView; v != want {
+			t.Errorf("%s: %q, want %q", in, v, want)
+		}
 	}
 }

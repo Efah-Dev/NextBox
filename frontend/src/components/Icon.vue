@@ -35,6 +35,11 @@ const icons: Record<string, string> = {
   down: p('M12 5v14') + p('M6 13l6 6 6-6'),
   rss: p('M5 5a14 14 0 0 1 14 14') + p('M5 11a8 8 0 0 1 8 8') + c(6, 18, 1.2),
   more: p('M5 12h.01') + p('M12 12h.01') + p('M19 12h.01'),
+  list: p('M4 6h16') + p('M4 12h16') + p('M4 18h16'),
+  // a menu opening above the taskbar
+  tray: '<rect x="7" y="3.5" width="11" height="8" rx="1.5"/><rect x="3" y="15" width="18" height="5.5" rx="1.5"/>' + p('M15 17.75h.01') + p('M18 17.75h.01') + p('M12.5 11.5v3.5'),
+  send: p('M21 3 3 10.2l7 2.8 2.8 7z') + p('M21 3 10 13'),
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="1.5"/>' + p('M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8'),
   info: c(12, 12, 9) + p('M12 11v6') + p('M12 7.5h.01'),
   warn: p('M12 4 2.5 20h19z') + p('M12 10v4.5') + p('M12 17.5h.01'),

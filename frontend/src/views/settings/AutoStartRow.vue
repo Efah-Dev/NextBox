@@ -154,7 +154,7 @@ async function fix() {
 
 <template>
   <div class="form-row autostart">
-    <div class="label">{{ t('开机自启') }}<span class="hint">{{ t('启动 Windows 后自动运行') }}</span></div>
+    <div class="label">{{ t('开机自启') }}<span class="hint">{{ t('登录 Windows 后自动启动') }}</span></div>
     <div class="control">
       <span v-if="enabled && last" class="last" :title="last.note">
         <span class="faint">{{ t('上次开机') }} {{ last.at }}</span>

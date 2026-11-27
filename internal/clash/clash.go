@@ -10,6 +10,7 @@ import (
 	"net"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -34,11 +35,12 @@ type Extras struct {
 
 // Group is a proxy group of the config.
 type Group struct {
-	Name    string
-	Type    string // select, url-test, fallback, load-balance, relay
-	Proxies []string
-	Filter  string // a regular expression on the proxy names
-	All     bool   // include-all / include-all-proxies
+	Name     string
+	Type     string // select, url-test, fallback, load-balance, relay
+	Proxies  []string
+	Filter   string // a regular expression on the proxy names
+	All      bool   // include-all / include-all-proxies
+	Interval int    // url-test interval in seconds; 0 = not given
 }
 
 // Rule is a converted rule: Kind is one of store.RuleKinds or store.KindURL
@@ -73,6 +75,7 @@ func Parse(text string) (*Extras, error) {
 	for _, g := range cfg.Groups {
 		grp := Group{Name: str(g["name"]), Type: str(g["type"]), Proxies: strs(g["proxies"]), Filter: str(g["filter"])}
 		grp.All = g["include-all"] == true || g["include-all-proxies"] == true
+		grp.Interval, _ = strconv.Atoi(str(g["interval"]))
 		if grp.Name != "" {
 			ex.Groups = append(ex.Groups, grp)
 		}
@@ -351,6 +354,9 @@ func Apply(st *store.Store, ex *Extras, g store.Group, opt store.ClashImport) (S
 			p := store.Policy{Name: cg.Name, Match: store.PolicyManual, Members: ids, GroupID: g.ID, Mode: store.PolicySelect, From: g.ID}
 			if cg.Type == "url-test" || cg.Type == "fallback" || cg.Type == "load-balance" {
 				p.Mode = store.PolicyAuto
+				if cg.Interval > 0 {
+					p.Interval = min(max((cg.Interval+59)/60, 1), store.MaxPolicyInterval)
+				}
 			}
 			if prev, ok := old[cg.Name]; ok {
 				p.ID = prev.ID

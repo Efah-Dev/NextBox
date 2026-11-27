@@ -101,16 +101,6 @@ func TargetPolicy(target string) int64 {
 	return 0
 }
 
-// IsDomainKind reports whether rules of this kind match domain names (as
-// opposed to IP addresses or processes).
-func IsDomainKind(kind string) bool {
-	switch kind {
-	case "geosite", "suffix", "domain", "keyword", "regex":
-		return true
-	}
-	return false
-}
-
 // Scene is a ready-made set of rules that can be switched on as a whole (see
 // config.SceneDefs for what each one matches).
 type Scene struct {
@@ -427,6 +417,9 @@ type Policy struct {
 	// PolicySelect (Selected, chosen by the user).
 	Mode     string `json:"mode"`
 	Selected int64  `json:"selected,omitempty"`
+	// Interval is how often (minutes) an auto policy group tests its
+	// members; 0 = DefaultPolicyInterval.
+	Interval int `json:"interval,omitempty"`
 	// From is the subscription (group ID) whose Clash proxy group made
 	// this policy group; an update of the subscription replaces it.
 	From int64 `json:"from,omitempty"`
@@ -442,7 +435,22 @@ const (
 
 	// MaxPolicyMembers caps how many nodes one policy group loads into the core.
 	MaxPolicyMembers = 100
+
+	// DefaultPolicyInterval and MaxPolicyInterval are in minutes.
+	DefaultPolicyInterval = 10
+	MaxPolicyInterval     = 1440
 )
+
+// TestInterval is how often (minutes) an auto policy group tests its members.
+func (p Policy) TestInterval() int {
+	switch {
+	case p.Interval <= 0:
+		return DefaultPolicyInterval
+	case p.Interval > MaxPolicyInterval:
+		return MaxPolicyInterval
+	}
+	return p.Interval
+}
 
 // Keywords splits the keyword condition.
 func (p Policy) Keywords() []string {

@@ -1,3 +1,7 @@
+<script lang="ts">
+let lastSection = 'general'
+</script>
+
 <script setup lang="ts">
 import { languages, t } from '../i18n'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
@@ -5,6 +9,8 @@ import Card from '../components/Card.vue'
 import Icon from '../components/Icon.vue'
 import Switch from '../components/Switch.vue'
 import Segmented from '../components/Segmented.vue'
+import HelpTip from '../components/HelpTip.vue'
+import Reveal from '../motion/Reveal.vue'
 import AccentPicker from './settings/AccentPicker.vue'
 import DisplayLevels from './settings/DisplayLevels.vue'
 import AutoStartRow from './settings/AutoStartRow.vue'
@@ -16,10 +22,13 @@ import TunServiceRow from './settings/TunServiceRow.vue'
 import PolicySection from './settings/PolicySection.vue'
 import BackupSection from './settings/BackupSection.vue'
 import AboutSection from './settings/AboutSection.vue'
+import HotkeySection from './settings/HotkeySection.vue'
+import TraySection from './settings/TraySection.vue'
 import { api, type Settings } from '../api'
 import { state } from '../state'
 import { confirmDialog, formatBytes, run, toast } from '../util'
 import { isStep, ruleFilled } from '../policies'
+import { DARK_DEFAULT, LIGHT_DEFAULT } from '../theme'
 
 // Sorted by how often people change them: everyday things first, rarely
 // touched ones last.
@@ -29,6 +38,8 @@ const groups = [
     items: [
       { id: 'general', label: t('常规'), icon: 'settings' },
       { id: 'appearance', label: t('外观'), icon: 'palette' },
+      { id: 'hotkeys', label: t('快捷键'), icon: 'key' },
+      { id: 'tray', label: t('托盘菜单'), icon: 'tray' },
     ],
   },
   {
@@ -41,7 +52,7 @@ const groups = [
       { id: 'dns', label: 'DNS', icon: 'dns' },
     ],
   },
-  { label: t('节点'), items: [{ id: 'test', label: t('订阅与测速'), icon: 'zap' }] },
+  { label: t('节点'), items: [{ id: 'test', label: t('订阅与测试'), icon: 'zap' }] },
   {
     label: t('数据'),
     items: [
@@ -52,8 +63,13 @@ const groups = [
   { label: '', items: [{ id: 'about', label: t('关于'), icon: 'info' }] },
 ]
 const sections = groups.flatMap((g) => g.items)
-const order = (id: string) => sections.findIndex((s) => s.id === id)
-const active = ref('general')
+// One section is shown at a time; the page remembers the last one while
+// NextBox runs.
+const active = ref(lastSection)
+watch(active, (id) => {
+  lastSection = id
+  scroller.value?.scrollTo({ top: 0 })
+})
 const scroller = ref<HTMLElement>()
 
 const testUrls = [
@@ -105,8 +121,13 @@ async function save() {
   if (!keys.length || !state.app) return
   const next = clone(state.app.settings) as Record<string, unknown>
   for (const k of keys) {
-    if (k in form) next[k] = clone(form[k])
-    else delete next[k]
+    if (!(k in form)) {
+      delete next[k]
+      continue
+    }
+    next[k] = clone(form[k])
+    // an emptied number field means the default
+    if ((k === 'speedTestSeconds' || k === 'speedTestMb') && typeof next[k] !== 'number') next[k] = Number(next[k]) || 0
   }
   try {
     state.app.settings = next as unknown as Settings
@@ -146,6 +167,8 @@ const recentColors = computed({
 })
 
 const fakeIpOpen = ref(false)
+const levelsOpen = ref(false)
+const levelsChanged = computed(() => (form.lightLevel ?? LIGHT_DEFAULT) !== LIGHT_DEFAULT || (form.darkLevel ?? DARK_DEFAULT) !== DARK_DEFAULT)
 
 const logFiles = ref({ count: 0, bytes: 0 })
 const refreshLogFiles = async () => (logFiles.value = await api.getLogFilesInfo().catch(() => ({ count: 0, bytes: 0, dir: '' })))
@@ -157,15 +180,13 @@ async function clearLogFiles() {
   refreshLogFiles()
 }
 
-function jump(id: string) {
-  active.value = id
-  document.getElementById('sec-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
+const jump = (id: string) => (active.value = id)
 
 // ---- search: the options on the page as they are shown (in the current
 // language), found by their names and the hints under them
 interface Hit {
   key: number
+  id: string // the section
   section: string
   label: string
   hint: string
@@ -184,17 +205,20 @@ function search() {
     const before = out.length
     card.querySelectorAll<HTMLElement>('.form-row > .label, .block-title, .svc-head b').forEach((labelEl) => {
       const hintText = labelEl.querySelector('.hint')?.textContent?.trim() ?? ''
-      const label = (labelEl.textContent ?? '').replace(hintText, '').trim()
+      // the help tip's "?" is not part of the name
+      const label = (labelEl.textContent ?? '').replace(hintText, '').replace(/\?+\s*$/, '').trim()
       if (!label || !(label + ' ' + hintText).toLowerCase().includes(q)) return
       const row = (labelEl.closest('.form-row') as HTMLElement) ?? labelEl
-      if (!out.some((h) => h.el === row)) out.push({ key: out.length, section: s.label, label, hint: hintText, el: row })
+      if (!out.some((h) => h.el === row)) out.push({ key: out.length, id: s.id, section: s.label, label, hint: hintText, el: row })
     })
-    if (out.length === before && s.label.toLowerCase().includes(q)) out.push({ key: out.length, section: s.label, label: s.label, hint: '', el: card })
+    if (out.length === before && s.label.toLowerCase().includes(q)) out.push({ key: out.length, id: s.id, section: s.label, label: s.label, hint: '', el: card })
   }
   hits.value = out.slice(0, 40)
 }
 watch(query, search)
-function goTo(h: Hit) {
+async function goTo(h: Hit) {
+  active.value = h.id
+  await nextTick()
   h.el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   h.el.classList.remove('search-flash')
   void h.el.offsetWidth // restart the animation
@@ -221,32 +245,13 @@ onUnmounted(() => {
   }
 })
 
-// Opened from another page for a specific section (e.g. Nodes → 测速设置).
+// Opened from another page for a specific section (e.g. Nodes → 测试设置).
 onMounted(() => {
   const id = state.settingsSection
   if (!id) return
   state.settingsSection = ''
-  active.value = id
-  nextTick(() => document.getElementById('sec-' + id)?.scrollIntoView({ block: 'start' }))
+  if (sections.some((s) => s.id === id)) active.value = id
 })
-
-function onScroll() {
-  const el = scroller.value
-  if (!el) return
-  // the last sections are too short to reach the top, so at the very bottom
-  // highlight the last one
-  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 4) {
-    active.value = sections[sections.length - 1].id
-    return
-  }
-  for (const s of [...sections].reverse()) {
-    const node = document.getElementById('sec-' + s.id)
-    if (node && node.offsetTop - el.offsetTop <= el.scrollTop + 40) {
-      active.value = s.id
-      return
-    }
-  }
-}
 </script>
 
 <template>
@@ -280,8 +285,8 @@ function onScroll() {
       <div class="faint saved"><Icon name="check" :size="13" /> {{ t('修改会自动保存并生效') }}</div>
     </aside>
 
-    <main ref="scroller" class="content scroll" @scroll="onScroll">
-      <Card id="sec-general" :title="t('常规')" :index="order('general')">
+    <main ref="scroller" class="content scroll settings-content">
+      <Card v-show="active === 'general'" id="sec-general" :title="t('常规')">
         <div class="form-row">
           <div class="label">{{ t('语言') }}<span class="hint">Language / 語言</span></div>
           <div class="control">
@@ -294,16 +299,16 @@ function onScroll() {
           <div class="control"><span class="spacer" /><Switch v-model="form.autoStartConnect" /></div>
         </div>
         <div class="form-row">
-          <div class="label">{{ t('打开时自动连接') }}<span class="hint">{{ t('手动打开 NextBox 时也自动连接') }}</span></div>
+          <div class="label">{{ t('打开时自动连接') }}<span class="hint">{{ t('手动启动 NextBox 时自动连接') }}</span></div>
           <div class="control"><span class="spacer" /><Switch v-model="form.connectOnStart" /></div>
         </div>
         <div class="form-row">
-          <div class="label">{{ t('关闭时隐藏到托盘') }}<span class="hint">{{ t('关闭后代理继续在后台运行') }}</span></div>
+          <div class="label">{{ t('关闭时隐藏到托盘') }}<span class="hint">{{ t('关闭窗口后代理保持运行') }}</span></div>
           <div class="control"><span class="spacer" /><Switch v-model="form.closeToTray" /></div>
         </div>
       </Card>
 
-      <Card id="sec-appearance" :title="t('外观')" :index="order('appearance')">
+      <Card v-show="active === 'appearance'" id="sec-appearance" :title="t('外观')">
         <div class="form-row">
           <div class="label">{{ t('主题') }}</div>
           <div class="control">
@@ -318,18 +323,29 @@ function onScroll() {
             />
           </div>
         </div>
-        <DisplayLevels v-model:light="form.lightLevel" v-model:dark="form.darkLevel" />
         <div class="form-row">
           <div class="label">{{ t('主题色') }}</div>
           <div class="control">
             <AccentPicker v-model="form.accentColor" v-model:recent="recentColors" />
           </div>
         </div>
+        <div class="form-row">
+          <div class="label">{{ t('亮度与深度') }}<span class="hint">{{ levelsChanged ? t('已调整') : t('标准') }}</span></div>
+          <div class="control">
+            <button class="btn ghost small" @click="levelsOpen = !levelsOpen">{{ levelsOpen ? t('收起') : t('调整') }} <Icon :name="levelsOpen ? 'up' : 'down'" :size="12" /></button>
+          </div>
+        </div>
+        <Reveal :open="levelsOpen">
+          <DisplayLevels v-model:light="form.lightLevel" v-model:dark="form.darkLevel" />
+        </Reveal>
       </Card>
 
-      <Card id="sec-inbound" :title="t('代理端口')" :index="order('inbound')">
+      <HotkeySection v-show="active === 'hotkeys'" :form="form" />
+      <TraySection v-show="active === 'tray'" :form="form" />
+
+      <Card v-show="active === 'inbound'" id="sec-inbound" :title="t('代理端口')">
         <div class="form-row">
-          <div class="label">{{ t('连接时设置系统代理') }}<span class="hint">{{ t('开启 TUN 模式时不使用') }}</span></div>
+          <div class="label">{{ t('连接时设置系统代理') }}<span class="hint">{{ t('TUN 模式下不设置') }}</span></div>
           <div class="control"><Switch v-model="form.systemProxy" /></div>
         </div>
         <div class="form-row">
@@ -341,19 +357,19 @@ function onScroll() {
           <div class="control"><input v-model.lazy.number="form.mixedPort" type="number" class="input mono" style="width: 120px" /></div>
         </div>
         <div class="form-row">
-          <div class="label">{{ t('允许局域网连接') }}<span class="hint">{{ t('同一网络的设备无需密码即可使用') }}</span></div>
+          <div class="label"><span>{{ t('允许局域网连接') }}<HelpTip :text="t('监听地址改为 0.0.0.0，同一局域网的设备可以把本机作为代理服务器。代理端口没有密码保护，在公共网络中请关闭。')" /></span><span class="hint">{{ t('局域网设备可连接代理端口') }}</span></div>
           <div class="control"><Switch v-model="form.allowLan" /></div>
         </div>
         <div class="form-row">
-          <div class="label">{{ t('流量嗅探') }}<span class="hint">{{ t('识别 TLS / HTTP 域名') }}</span></div>
+          <div class="label">{{ t('流量嗅探') }}<span class="hint">{{ t('从 TLS SNI 与 HTTP Host 识别域名') }}</span></div>
           <div class="control"><Switch v-model="form.sniff" /></div>
         </div>
       </Card>
 
-      <Card id="sec-tun" :title="t('TUN 模式')" :index="order('tun')">
+      <Card v-show="active === 'tun'" id="sec-tun" :title="t('TUN 模式')">
         <div v-if="!state.app?.elevated && !state.app?.serviceReady" class="warn">
           <Icon name="warn" :size="16" />
-          <span>{{ t('TUN 模式需要管理员权限，安装服务模式或以管理员运行。') }}</span>
+          <span>{{ t('TUN 模式需要管理员权限：请安装服务模式，或以管理员身份运行。') }}</span>
           <button class="btn small" @click="run(() => api.restartAsAdmin())">{{ t('以管理员身份重启') }}</button>
         </div>
         <div class="form-row">
@@ -385,26 +401,25 @@ function onScroll() {
         </div>
         <TunExcludeRow :form="form" />
         <div class="form-row">
-          <div class="label">FakeIP<span class="hint">{{ t('走代理的域名先拿到假地址，首次连接更快、DNS 不泄露') }}</span></div>
+          <div class="label"><span>FakeIP<HelpTip :text="t('仅在 TUN 模式下生效。需要走代理的域名先得到 198.18.0.0/15 内的保留地址，连接时由内核还原为域名，可省去一次远程解析并避免本地 DNS 泄露。断开后个别程序可能仍缓存该地址，重启该程序即可。')" /></span><span class="hint">{{ t('为代理域名分配保留地址') }}</span></div>
           <div class="control">
             <button class="btn ghost small" @click="fakeIpOpen = !fakeIpOpen">{{ t('排除列表') }} <Icon :name="fakeIpOpen ? 'up' : 'down'" :size="12" /></button>
             <span class="spacer" />
             <Switch v-model="form.tunFakeIp" />
           </div>
         </div>
-        <p v-if="form.tunFakeIp" class="faint tip">
-          {{ t('只在 TUN 模式下生效。断开后个别程序可能还记着 198.18.x.x 的假地址而连不上，重启该程序即可。') }}
-        </p>
-        <div v-if="fakeIpOpen" class="fakeip-excl">
-          <div class="faint tip">{{ t('这些域名（含子域名）始终返回真实 IP，每行一个。Windows 联网检测和局域网名称已默认包含。') }}</div>
-          <textarea v-model.lazy="form.fakeIpExclude" class="textarea mono" spellcheck="false" />
-        </div>
+        <Reveal :open="fakeIpOpen">
+          <div class="fakeip-excl">
+            <div class="faint tip">{{ t('这些域名（含子域名）始终返回真实 IP，每行一个。Windows 联网检测和局域网名称已默认包含。') }}</div>
+            <textarea v-model.lazy="form.fakeIpExclude" class="textarea mono" spellcheck="false" />
+          </div>
+        </Reveal>
       </Card>
 
-      <RouteSection :form="form" :index="order('route')" />
-      <PolicySection :form="form" :index="order('policy')" />
+      <RouteSection v-show="active === 'route'" :form="form" />
+      <PolicySection v-show="active === 'policy'" :form="form" />
 
-      <Card id="sec-dns" title="DNS" :index="order('dns')">
+      <Card v-show="active === 'dns'" id="sec-dns" title="DNS">
         <div class="form-row">
           <div class="label">{{ t('远程 DNS') }}<span class="hint">{{ t('经代理查询') }}</span></div>
           <div class="control"><input v-model.lazy="form.remoteDns" class="input mono" placeholder="https://1.1.1.1/dns-query" /></div>
@@ -424,7 +439,7 @@ function onScroll() {
         </p>
       </Card>
 
-      <Card id="sec-test" :title="t('订阅与测速')" :index="order('test')">
+      <Card v-show="active === 'test'" id="sec-test" :title="t('订阅与测试')">
         <div class="form-row">
           <div class="label">{{ t('自动更新订阅') }}<span class="hint">{{ t('NextBox 运行期间在后台更新') }}</span></div>
           <div class="control">
@@ -444,8 +459,8 @@ function onScroll() {
         </div>
         <div class="form-row">
           <div class="label">
-            {{ t('节点地区') }}
-            <span class="hint">{{ form.countrySource === 'server' ? t('按服务器 IP：本地查询，中转节点会显示入口地区') : t('按落地 IP：URL 测试时顺便检测，最准确') }}</span>
+            <span>{{ t('节点地区') }}<HelpTip :text="t('落地 IP：URL 测延迟时经节点查询出口地址，结果最准确。服务器 IP：用本地数据库查询节点服务器的地址，无需联网，但中转节点会显示入口所在地区。')" /></span>
+            <span class="hint">{{ form.countrySource === 'server' ? t('依据服务器 IP（本地查询）') : t('依据落地 IP（URL 测试时检测）') }}</span>
           </div>
           <div class="control">
             <Segmented
@@ -459,8 +474,8 @@ function onScroll() {
         </div>
         <div class="form-row">
           <div class="label">
-            {{ t('测速方式') }}
-            <span class="hint">{{ form.testMode === 'tcp' ? t('只测服务器端口，更快；UDP 协议总用 URL') : t('经节点访问测速地址，测真实延迟') }}</span>
+            <span>{{ t('测延迟方式') }}<HelpTip :text="t('TCP：只测与服务器端口建立连接的时间，速度快，但不能说明节点可用。URL：经节点请求测试地址，结果即实际可用的延迟。基于 UDP 的协议（Hysteria2、TUIC 等）和链式代理始终使用 URL。')" /></span>
+            <span class="hint">{{ form.testMode === 'tcp' ? t('只测到服务器端口的握手时间') : t('经节点请求测试地址，反映实际可用性') }}</span>
           </div>
           <div class="control">
             <Segmented
@@ -474,8 +489,8 @@ function onScroll() {
         </div>
         <div class="form-row">
           <div class="label">
-            {{ t('测速后') }}
-            <span class="hint">{{ form.sortAfterTest === 'default' ? t('恢复订阅里的顺序，手动分组按添加的先后') : form.sortAfterTest === 'latency' ? t('最快的在最上面，超时的排到最后') : form.sortAfterTest === 'none' ? t('只显示延迟，不动位置') : t('还没选，第一次测速时会询问') }}</span>
+            {{ t('测延迟后') }}
+            <span class="hint">{{ form.sortAfterTest === 'default' ? t('恢复订阅中的原始顺序') : form.sortAfterTest === 'latency' ? t('按延迟从低到高排列') : form.sortAfterTest === 'none' ? t('保持当前顺序') : t('尚未选择，首次测试时询问') }}</span>
           </div>
           <div class="control">
             <Segmented
@@ -489,7 +504,7 @@ function onScroll() {
           </div>
         </div>
         <div class="form-row">
-          <div class="label">{{ t('测速地址') }}</div>
+          <div class="label">{{ t('测试地址') }}</div>
           <div class="control">
             <select v-model="form.testUrl" class="select" style="width: 260px">
               <option v-for="u in testUrls" :key="u.value" :value="u.value">{{ u.label }}</option>
@@ -506,13 +521,35 @@ function onScroll() {
           <div class="label">{{ t('并发数') }}</div>
           <div class="control"><input v-model.lazy.number="form.testConcurrency" type="number" class="input mono" style="width: 120px" /></div>
         </div>
+        <div class="sub-title">{{ t('下载测速') }}</div>
+        <div class="form-row">
+          <div class="label">
+            <span>{{ t('单个节点时长') }}<HelpTip :text="t('每个节点下载到这个时间就停止，按下载期间的平均速度计。时间越长结果越稳定，也越费流量。')" /></span>
+            <span class="hint">{{ t('1–60 秒，默认 10 秒') }}</span>
+          </div>
+          <div class="control"><input v-model.lazy.number="form.speedTestSeconds" type="number" min="1" max="60" class="input mono" style="width: 120px" placeholder="10" /></div>
+        </div>
+        <div class="form-row">
+          <div class="label">
+            <span>{{ t('单个节点流量上限') }}<HelpTip :text="t('每个节点下载到这个数量就停止，先到时长或流量上限的一方为准。流量少的套餐可以调低。')" /></span>
+            <span class="hint">{{ t('MB，默认 50') }}</span>
+          </div>
+          <div class="control"><input v-model.lazy.number="form.speedTestMb" type="number" min="1" max="1024" class="input mono" style="width: 120px" placeholder="50" /></div>
+        </div>
+        <div class="form-row">
+          <div class="label">
+            <span>{{ t('测速文件') }}<HelpTip :text="t('留空使用 Cloudflare 的测速文件（speed.cloudflare.com），大小按流量上限生成。自定义地址需要能直接下载，且文件足够大。')" /></span>
+            <span class="hint">{{ t('留空使用 Cloudflare') }}</span>
+          </div>
+          <div class="control"><input v-model.lazy.trim="form.speedTestUrl" class="input mono" placeholder="https://speed.cloudflare.com/__down" /></div>
+        </div>
       </Card>
 
-      <BackupSection :index="order('backup')" />
+      <BackupSection v-show="active === 'backup'" />
 
-      <Card id="sec-logs" :title="t('日志与诊断')" :index="order('logs')">
+      <Card v-show="active === 'logs'" id="sec-logs" :title="t('日志与诊断')">
         <div class="form-row">
-          <div class="label">{{ t('日志级别') }}<span class="hint">{{ t('debug 最详细，warn 只记录问题') }}</span></div>
+          <div class="label">{{ t('日志级别') }}<span class="hint">{{ t('debug 最详细，warn 仅记录异常') }}</span></div>
           <div class="control">
             <select v-model="form.logLevel" class="select" style="width: 160px">
               <option v-for="l in ['debug', 'info', 'warn', 'error']" :key="l" :value="l">{{ l }}</option>
@@ -520,7 +557,7 @@ function onScroll() {
           </div>
         </div>
         <div class="form-row">
-          <div class="label">{{ t('识别连接进程') }}<span class="hint">{{ t('连接页显示程序名，略增开销') }}</span></div>
+          <div class="label">{{ t('识别连接进程') }}<span class="hint">{{ t('在连接页显示发起连接的程序') }}</span></div>
           <div class="control"><Switch v-model="form.findProcess" /></div>
         </div>
         <div class="form-row">
@@ -532,7 +569,7 @@ function onScroll() {
           </div>
         </div>
         <div class="form-row">
-          <div class="label">{{ t('记录日志到文件') }}<span class="hint">{{ t('按启动时间命名，方便排查问题') }}</span></div>
+          <div class="label">{{ t('记录日志到文件') }}<span class="hint">{{ t('每次启动新建一个日志文件') }}</span></div>
           <div class="control"><Switch v-model="form.logToFile" /></div>
         </div>
         <template v-if="form.logToFile || logFiles.count">
@@ -545,7 +582,7 @@ function onScroll() {
             </div>
           </div>
           <div class="form-row">
-            <div class="label">{{ t('保留时间') }}<span class="hint">{{ t('启动时自动删除更早的文件') }}</span></div>
+            <div class="label">{{ t('保留时间') }}<span class="hint">{{ t('启动时清理超期的日志文件') }}</span></div>
             <div class="control">
               <select v-model.number="form.logKeepDays" class="select" style="width: 160px">
                 <option v-for="d in keepOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
@@ -564,7 +601,7 @@ function onScroll() {
         </template>
       </Card>
 
-      <AboutSection :form="form" :index="order('about')" />
+      <AboutSection v-show="active === 'about'" :form="form" />
     </main>
   </div>
 </template>
@@ -660,14 +697,47 @@ function onScroll() {
 .content {
   scroll-padding-top: 18px;
 }
+/* one section per page: rows of one height, the name on the left and its
+   controls on the right */
+/* one column of the same width, centred in a wide window */
+.settings-content > * {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 980px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.settings-content :deep(.form-row) {
+  min-height: 52px;
+  padding: 8px 0;
+}
+.settings-content :deep(.form-row > .control) {
+  justify-content: flex-end;
+}
+.settings-content :deep(.form-row > .label) {
+  width: 260px;
+}
+.settings-content :deep(.form-row > .label .hint) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .form-row.sub {
   padding-left: 18px;
 }
-.form-row.sub .label {
-  width: 132px;
+.settings-content .form-row.sub > .label {
+  width: 242px;
 }
 .textarea {
   min-height: 100px;
+}
+.sub-title {
+  margin: 14px 0 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
 }
 .tip {
   margin: 8px 0 0;

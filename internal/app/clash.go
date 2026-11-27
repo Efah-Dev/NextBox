@@ -9,7 +9,6 @@ import (
 
 	"nextbox/internal/clash"
 	"nextbox/internal/store"
-	"nextbox/internal/sub"
 )
 
 // ClashInfo is what the dialog that asks shows: what an import would make,
@@ -38,16 +37,7 @@ func (a *App) clashExtrasOf(g store.Group, fetch bool) (*clash.Extras, error) {
 	if ex != nil || g.URL == "" || !fetch {
 		return ex, nil
 	}
-	s := a.store.Settings()
-	ua := g.UserAgent
-	if ua == "" {
-		ua = s.SubUserAgent
-	}
-	proxy := ""
-	if s.SubUpdateByProxy && a.isRunning() {
-		proxy = "http://" + proxyAddr(s)
-	}
-	res, err := sub.Fetch(a.ctx, g.URL, ua, proxy)
+	res, err := a.fetchSubscription(g.URL, g.UserAgent)
 	if err != nil {
 		return nil, err
 	}

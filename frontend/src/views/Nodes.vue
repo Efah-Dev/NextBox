@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { t } from '../i18n'
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import Icon from '../components/Icon.vue'
 import Menu from '../components/Menu.vue'
 import Flag from '../components/Flag.vue'
@@ -9,11 +9,16 @@ import ChainEditor from './ChainEditor.vue'
 import DupDialog from './DupDialog.vue'
 import { api, rt, type Profile, type TestMode } from '../api'
 import { askClash, askNewClash } from '../clashImport'
-import { currentGroup, latencyTest, nodesAdded, settings, sortChosen, state, testMode, testNodes } from '../state'
+import { importText } from '../importer'
+import PolicyPanel from './PolicyPanel.vue'
+import ContextMenu, { type CtxItem } from '../components/ContextMenu.vue'
+import PolicyEditor from './settings/PolicyEditor.vue'
+import { policies, refreshPolicies } from '../policies'
+import { currentGroup, latencyTest, nodesAdded, patchSettings, settings, sortChosen, speedTest, state, testMode, testNodes } from '../state'
 import { bareName, countryMatches, countryTitle, nodeCountry } from '../country'
 import { moveItem, useDragSort } from '../drag'
 import {
-  confirmDialog, formatBytes, groupName, httpWarning, latencyClass, latencyText, promptDialog, run, serverOf, toast, typeName,
+  confirmDialog, formatBytes, formatSpeed, groupName, shortTime, httpWarning, latencyClass, latencyText, promptDialog, run, serverOf, toast, typeName,
   type MenuItem,
 } from '../util'
 
@@ -25,6 +30,17 @@ const chainOpen = ref(false)
 const editingChain = ref<Profile | null>(null)
 
 const groupId = computed(() => state.app?.currentGroupId ?? 0)
+
+// list or grid (Settings.nodeView, kept on this computer)
+const view = computed<'list' | 'grid'>({
+  get: () => (settings.value?.nodeView === 'grid' ? 'grid' : 'list'),
+  set: (v) => run(() => patchSettings({ nodeView: v })),
+})
+
+// 分组代理 in the side bar: the policy groups, to connect through one
+const showPolicies = ref(false)
+const policyEditorOpen = ref(false)
+onMounted(refreshPolicies)
 const testing = computed(() => !!state.app?.testing)
 
 const filtered = computed(() => {
@@ -50,7 +66,7 @@ const sorter = useDragSort({
   container: listEl,
   item: '.node',
   count: () => state.profiles.length,
-  enabled: () => !query.value.trim() && state.profiles.length > 1,
+  enabled: () => !query.value.trim() && view.value === 'list' && state.profiles.length > 1,
   ignore: '.node-actions, button',
   onDrop: (from, to) => {
     moveItem(state.profiles, from, to)
@@ -72,6 +88,7 @@ const usage = computed(() => {
 
 function selectGroup(id: number) {
   query.value = ''
+  showPolicies.value = false
   run(() => api.setCurrentGroup(id))
 }
 
@@ -132,11 +149,8 @@ async function chainNote(ids: number[]) {
     : t('⚠ 其中有节点是 {0} 个链式代理的成员：{1}。删除后这些链式代理会失效。', names.length, list))
 }
 
-async function importClipboard() {
-  const text = await rt.clipboardGet()
-  if (!text?.trim()) return toast(t('剪贴板是空的'), 'error')
-  if (await run(() => api.importText(text, groupId.value), (m) => m)) nodesAdded()
-}
+// subscriptions and share links alike (importer.ts); Ctrl+V does the same
+const importClipboard = async () => importText(await rt.clipboardGet())
 
 function newProfile() {
   editing.value = null
@@ -199,6 +213,32 @@ async function testAll() {
   if (ids.length && (await sortChosen(ids.length))) run(() => testNodes(ids))
 }
 
+// ---- download speed: one node after another, with a limit of time and data
+const speedLimits = computed(() => ({ secs: settings.value?.speedTestSeconds || 10, mb: settings.value?.speedTestMb || 50 }))
+async function testSpeed(ids: number[]) {
+  if (!ids.length) return
+  const { secs, mb } = speedLimits.value
+  const ok = await confirmDialog(
+    t('测下载速度'),
+    t('依次经每个节点下载测试文件，每个节点最多 {0} 秒或 {1} MB。共 {2} 个节点，最多约消耗 {3} 流量。', secs, mb, ids.length, formatBytes(ids.length * mb * 1024 * 1024)),
+    false,
+    t('开始'),
+  )
+  if (ok) run(() => api.testSpeed(ids))
+}
+const speedOf = (id: number) => speedTest.results.get(id)
+const speedText = (id: number) => {
+  const r = speedOf(id)
+  if (!r) return ''
+  if (r.error) return t('失败')
+  return '↓ ' + formatSpeed(r.speed)
+}
+const testItems = computed<MenuItem[]>(() => [
+  { label: t('测延迟'), hint: testMode() === 'tcp' ? t('TCP 握手，当前设置') : t('URL 请求，当前设置'), icon: 'zap', action: testAll },
+  { label: t('测下载速度'), hint: t('每个节点最多 {0} 秒 / {1} MB', speedLimits.value.secs, speedLimits.value.mb), icon: 'download', action: () => testSpeed(filtered.value.filter((p) => p.type !== 'chain' || !brokenHops(p).length).map((p) => p.id)) },
+  { label: t('测试设置…'), icon: 'settings', action: openTestSettings },
+])
+
 async function copyAll() {
   const nodes = filtered.value.filter((p) => p.type !== 'chain')
   const chains = filtered.value.length - nodes.length
@@ -215,7 +255,7 @@ async function copyAll() {
 const dupOpen = ref(false)
 
 async function deleteUnavailable() {
-  if (await confirmDialog(t('删除失效节点'), t('将删除本分组中最近一次测速失败的节点。'), true)) {
+  if (await confirmDialog(t('删除失效节点'), t('将删除本分组中最近一次测试失败的节点。'), true)) {
     run(() => api.deleteUnavailable(groupId.value), (n) => t('已删除 {0} 个节点', n))
   }
 }
@@ -230,7 +270,7 @@ function openTestSettings() {
 const testPercent = computed(() => (latencyTest.total ? (latencyTest.done / latencyTest.total) * 100 : 0))
 const testNow = computed(() => {
   const name = state.profiles.find((p) => p.id === latencyTest.current)?.name
-  if (!name) return latencyTest.mode === 'url' && !latencyTest.done ? t('正在启动测速内核…') : ''
+  if (!name) return latencyTest.mode === 'url' && !latencyTest.done ? t('正在启动测试内核…') : ''
   const n = latencyTest.running.size
   return n > 1 ? t('正在测试：{0} 等 {1} 个节点', name, n) : t('正在测试：{0}', name)
 })
@@ -243,7 +283,7 @@ const testConfig = computed(() => {
   try {
     host = new URL(s.testUrl).host
   } catch {}
-  return t('测速地址 {0} · 超时 {1} 秒 · 并发 {2}', host, sec, s.testConcurrency)
+  return t('测试地址 {0} · 超时 {1} 秒 · 并发 {2}', host, sec, s.testConcurrency)
 })
 
 const moreItems = computed<MenuItem[]>(() => [
@@ -257,6 +297,31 @@ const moreItems = computed<MenuItem[]>(() => [
   { label: t('删除失效节点'), icon: 'trash', danger: true, action: deleteUnavailable },
   { label: t('删除分组'), icon: 'trash', danger: true, action: deleteGroup },
 ])
+
+// ---- right-click menu of a node (the only way to its actions in the grid,
+// where buttons on the card would cover its name and latency)
+const nodeMenu = ref<{ x: number; y: number; p: Profile } | null>(null)
+function openNodeMenu(e: MouseEvent, p: Profile) {
+  nodeMenu.value = { x: e.clientX, y: e.clientY, p }
+}
+const nodeMenuItems = computed<CtxItem[]>(() => {
+  const m = nodeMenu.value
+  if (!m) return []
+  const p = m.p
+  const chain = p.type === 'chain'
+  return [
+    { title: true, label: bareName(p.name) },
+    { label: t('使用这个节点'), icon: 'check', disabled: p.id === state.app?.selectedId && !state.app?.selectedPolicy, action: () => select(p) },
+    { label: t('测延迟'), icon: 'zap', disabled: !!latencyTest.mode || speedTest.running, action: () => run(() => testNodes([p.id], urlOnly(p) ? 'url' : testMode())) },
+    { label: t('测下载速度'), icon: 'download', disabled: !!latencyTest.mode || speedTest.running, action: () => testSpeed([p.id]) },
+    { sep: true },
+    { label: t('编辑'), icon: 'edit', action: () => editProfile(p) },
+    { label: t('复制分享链接'), icon: 'link', disabled: chain, action: () => shareProfile(p) },
+    { label: t('复制地址'), icon: 'copy', hint: chain ? '' : String(p.outbound?.server ?? ''), disabled: chain || !p.outbound?.server, action: () => copyServer(p) },
+    { sep: true },
+    { label: t('删除'), icon: 'trash', danger: true, action: () => deleteProfile(p) },
+  ]
+})
 
 // ---- copy a node's address (without the port) ----
 const copiedId = ref(0)
@@ -285,16 +350,16 @@ const urlOnly = (p: Profile) =>
 // Shift picks the other method
 const otherMode = (m: TestMode): TestMode => (m === 'tcp' ? 'url' : 'tcp')
 function testOne(p: Profile, e: MouseEvent) {
-  if (latencyTest.mode) return toast(t('正在测速，请稍候'), 'error')
+  if (latencyTest.mode) return toast(t('正在测试，请稍候'), 'error')
   const mode = urlOnly(p) ? 'url' : e.shiftKey ? otherMode(testMode()) : testMode()
   run(() => testNodes([p.id], mode))
 }
 
 function boltTitle(p: Profile) {
-  if (urlOnly(p)) return p.type === 'chain' ? t('URL 测试（链式代理要测整条链路）') : t('URL 测试（基于 UDP 的协议不能用 TCP 测速）')
+  if (urlOnly(p)) return p.type === 'chain' ? t('URL 测试（链式代理要测整条链路）') : t('URL 测延迟（基于 UDP 的协议无法用 TCP 测试）')
   return testMode() === 'tcp'
-    ? t('TCP 测速：只测服务器端口能否连上。按住 Shift 点击改用 URL 测试，检验节点是否真的可用')
-    : t('URL 测试：经节点访问测速地址。按住 Shift 点击改用 TCP 测速，只测服务器端口')
+    ? t('TCP 测延迟：只测服务器端口能否连上。按住 Shift 点击改用 URL 测延迟')
+    : t('URL 测延迟：经节点请求测试地址。按住 Shift 点击改用 TCP 测延迟')
 }
 </script>
 
@@ -308,13 +373,22 @@ function boltTitle(p: Profile) {
             v-for="g in state.app?.groups"
             :key="g.id"
             class="nav-item"
-            :class="{ active: g.id === groupId }"
+            :class="{ active: g.id === groupId && !showPolicies }"
             @click="selectGroup(g.id)"
           >
             <Icon :name="g.url ? 'rss' : 'folder'" :size="16" />
             <span class="ellipsis">{{ groupName(g) }}</span>
             <span v-if="g.id === groupId" class="count">{{ state.profiles.length }}</span>
           </div>
+          <template v-if="policies.list.length">
+            <div class="side-title policy-title">{{ t('分组代理') }}</div>
+            <div class="nav-item" :class="{ active: showPolicies }" @click="showPolicies = true">
+              <Icon name="layers" :size="16" />
+              <span class="ellipsis">{{ t('分组代理') }}</span>
+              <span v-if="state.app?.selectedPolicy" class="dot" :title="t('正在使用')" />
+              <span class="count">{{ policies.list.length }}</span>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -335,27 +409,37 @@ function boltTitle(p: Profile) {
       </div>
     </aside>
 
-    <main class="content">
+    <main v-if="showPolicies" class="content">
+      <PolicyPanel @edit="policyEditorOpen = true" />
+    </main>
+    <main v-else class="content">
       <div class="toolbar">
         <div class="title">
           <b>{{ groupName(currentGroup) }}</b>
-          <span v-if="currentGroup?.updatedAt" class="faint">
-            {{ t('更新于 {0}', new Date(currentGroup.updatedAt * 1000).toLocaleString()) }}
+          <span v-if="currentGroup?.updatedAt" class="faint" :title="new Date(currentGroup.updatedAt * 1000).toLocaleString()">
+            {{ t('更新于 {0}', shortTime(currentGroup.updatedAt)) }}
           </span>
         </div>
         <div class="search">
           <Icon name="search" :size="14" />
           <input v-model="query" class="input" :placeholder="t('搜索节点')" />
         </div>
-        <button v-if="currentGroup?.url" class="btn" :disabled="updating" @click="updateSubscription">
-          <Icon name="refresh" :class="{ spin: updating }" /> {{ t('更新') }}
+        <button v-if="currentGroup?.url" class="btn" :disabled="updating" :title="t('更新订阅')" @click="updateSubscription">
+          <Icon name="refresh" :class="{ spin: updating }" /><span class="lbl">{{ t('更新') }}</span>
         </button>
-        <button class="btn" :title="t('从剪贴板导入')" @click="importClipboard"><Icon name="clipboard" /> {{ t('导入') }}</button>
+        <button class="btn" :title="t('从剪贴板导入（Ctrl+V）')" @click="importClipboard"><Icon name="clipboard" /><span class="lbl">{{ t('导入') }}</span></button>
         <Menu :items="addItems" icon="plus" />
-        <button v-if="testing" class="btn danger" @click="run(() => api.stopTest())"><Icon name="close" /> {{ t('停止测速') }}</button>
-        <button v-else class="btn primary" :disabled="!filtered.length" :title="testMode() === 'tcp' ? t('TCP 测速 · 可在设置里改') : t('URL 测速 · 可在设置里改')" @click="testAll">
-          <Icon name="zap" /> {{ t('测速') }}
-        </button>
+        <button v-if="testing" class="btn danger" @click="run(() => api.stopTest())"><Icon name="close" /> {{ t('停止测试') }}</button>
+        <div v-else class="split">
+          <button class="btn primary" :disabled="!filtered.length" :title="testMode() === 'tcp' ? t('TCP 测延迟 · 可在设置里改') : t('URL 测延迟 · 可在设置里改')" @click="testAll">
+            <Icon name="zap" /> {{ t('测延迟') }}
+          </button>
+          <Menu :items="testItems" icon="chevron" btn-class="primary chev-down" :title="t('更多测试')" />
+        </div>
+        <div class="view-switch" role="group" :aria-label="t('视图')">
+          <button :class="{ on: view === 'list' }" :title="t('列表')" @click="view = 'list'"><Icon name="list" :size="15" /></button>
+          <button :class="{ on: view === 'grid' }" :title="t('网格')" @click="view = 'grid'"><Icon name="grid" :size="15" /></button>
+        </div>
         <Menu :items="moreItems" />
       </div>
 
@@ -363,17 +447,31 @@ function boltTitle(p: Profile) {
         <span class="test-ping"><Icon :name="latencyTest.mode === 'tcp' ? 'gauge' : 'zap'" :size="14" /></span>
         <div class="test-info">
           <div class="test-line">
-            <b>{{ latencyTest.mode === 'tcp' ? t('TCP 测试') : t('URL 测试') }}</b>
+            <b>{{ latencyTest.mode === 'tcp' ? t('TCP 测延迟') : t('URL 测延迟') }}</b>
             <span class="mono test-count">{{ latencyTest.done }} / {{ latencyTest.total }}</span>
             <span class="ellipsis test-now">{{ testNow }}</span>
           </div>
           <div class="faint ellipsis test-config">{{ testConfig }}</div>
         </div>
-        <button class="btn ghost small icon" :title="t('测速设置…')" @click="openTestSettings"><Icon name="settings" :size="14" /></button>
+        <button class="btn ghost small icon" :title="t('测试设置…')" @click="openTestSettings"><Icon name="settings" :size="14" /></button>
         <div class="test-progress"><span :style="{ width: testPercent + '%' }" /></div>
       </div>
 
-      <div v-if="filtered.length" class="list-head-wrap">
+      <div v-if="speedTest.running" class="test-bar">
+        <span class="test-ping"><Icon name="download" :size="14" /></span>
+        <div class="test-info">
+          <div class="test-line">
+            <b>{{ t('下载测速') }}</b>
+            <span class="mono test-count">{{ speedTest.done }} / {{ speedTest.total }}</span>
+            <span class="ellipsis test-now">{{ speedTest.current ? t('正在测试：{0}', state.profiles.find((p) => p.id === speedTest.current)?.name ?? '') : t('正在启动测试内核…') }}</span>
+          </div>
+          <div class="faint ellipsis test-config">{{ t('每个节点最多 {0} 秒 / {1} MB · 一次一个节点', speedLimits.secs, speedLimits.mb) }}</div>
+        </div>
+        <button class="btn ghost small icon" :title="t('测试设置…')" @click="openTestSettings"><Icon name="settings" :size="14" /></button>
+        <div class="test-progress"><span :style="{ width: (speedTest.total ? (speedTest.done / speedTest.total) * 100 : 0) + '%' }" /></div>
+      </div>
+
+      <div v-if="filtered.length && view === 'list'" class="list-head-wrap">
         <div class="list-head">
           <span />
           <span>{{ t('名称') }}</span>
@@ -383,21 +481,23 @@ function boltTitle(p: Profile) {
           <span />
         </div>
       </div>
-      <div ref="listEl" class="list scroll" :class="{ 'sort-settling': sorter.drag.settling, sortable: !query.trim() }">
+      <div ref="listEl" class="list scroll" :class="{ 'sort-settling': sorter.drag.settling, sortable: !query.trim() && view === 'list', grid: view === 'grid' }">
         <div
           v-for="(p, i) in filtered"
           :key="p.id"
           class="node"
           :class="[{
-            selected: p.id === state.app?.selectedId,
+            selected: p.id === state.app?.selectedId && !state.app?.selectedPolicy,
             running: p.id === state.app?.runningId,
             probing: latencyTest.running.has(p.id),
             broken: brokenHops(p).length > 0,
+            'has-speed': !!speedOf(p.id) || speedTest.waiting.has(p.id),
           }, sorter.classes(i)]"
           :style="[{ '--i': Math.min(i, 12) }, sorter.style(i)]"
           @pointerdown="sorter.start($event, i)"
           @click="select(p)"
           @dblclick="selectAndConnect(p)"
+          @contextmenu.prevent="openNodeMenu($event, p)"
         >
           <span class="radio" />
           <div class="node-name">
@@ -427,10 +527,13 @@ function boltTitle(p: Profile) {
               <Icon :name="copiedId === p.id ? 'check' : 'copy'" :size="13" />
             </button>
           </span>
-          <span v-if="latencyTest.running.has(p.id)" class="lat" :title="t('测速中')"><span class="probe-bars"><i /><i /><i /><i /></span></span>
+          <span v-if="latencyTest.running.has(p.id)" class="lat" :title="t('测试中')"><span class="probe-bars"><i /><i /><i /><i /></span></span>
           <span v-else-if="latencyTest.waiting.has(p.id)" class="lat lat-none waiting">{{ t('等待中') }}</span>
           <span v-else class="lat" :class="latencyClass(p.latency)" :title="p.latencyError">
-            <span v-if="p.latencyKind && p.latency" class="lat-kind" :title="p.latencyKind === 'tcp' ? t('TCP 测速：只说明服务器端口能连上') : t('URL 测试：通过节点访问测速地址')">{{ p.latencyKind.toUpperCase() }}</span>{{ latencyText(p.latency) }}
+            <span v-if="p.latencyKind && p.latency" class="lat-kind" :title="p.latencyKind === 'tcp' ? t('TCP 测延迟：只说明服务器端口能连上') : t('URL 测延迟：通过节点访问测试地址')">{{ p.latencyKind.toUpperCase() }}</span>{{ latencyText(p.latency) }}
+          </span>
+          <span v-if="speedOf(p.id) || speedTest.waiting.has(p.id)" class="speed" :class="{ bad: speedOf(p.id)?.error, live: speedTest.current === p.id }" :title="speedOf(p.id)?.error">
+            {{ speedTest.waiting.has(p.id) ? t('等待中') : speedText(p.id) }}
           </span>
           <div class="node-actions" @click.stop @dblclick.stop>
             <button class="btn ghost small icon bolt" :class="{ busy: latencyTest.running.has(p.id) }" :title="boltTitle(p)" @click="testOne(p, $event)"><Icon name="zap" :size="14" /></button>
@@ -457,10 +560,23 @@ function boltTitle(p: Profile) {
     <NodeEditor v-model="editorOpen" :profile="editing" :group-id="groupId" />
     <ChainEditor v-model="chainOpen" :profile="editingChain" :group-id="groupId" />
     <DupDialog v-model="dupOpen" />
+    <ContextMenu v-if="nodeMenu" :items="nodeMenuItems" :x="nodeMenu.x" :y="nodeMenu.y" @close="nodeMenu = null" />
+    <PolicyEditor v-model="policyEditorOpen" :policy="null" />
   </div>
 </template>
 
 <style scoped>
+.policy-title {
+  margin-top: 14px;
+}
+.nav-item .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent);
+  flex-shrink: 0;
+}
 .groups-wrap {
   flex: 1;
   min-height: 0;
@@ -515,7 +631,7 @@ function boltTitle(p: Profile) {
 }
 .title {
   flex: 1;
-  min-width: 0;
+  min-width: 128px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -523,11 +639,32 @@ function boltTitle(p: Profile) {
 .title b {
   font-size: 16px;
 }
+.title b,
+.title span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .title span {
   font-size: 11px;
 }
+/* the search box gives way first when the window is narrow */
 .toolbar .search {
-  width: 200px;
+  flex: 0 1 200px;
+  min-width: 110px;
+}
+.toolbar > :not(.title):not(.search) {
+  flex-shrink: 0;
+}
+/* narrow window: these two keep only their icons */
+@media (max-width: 1040px) {
+  .toolbar .lbl {
+    display: none;
+  }
+  .toolbar .btn:has(.lbl) {
+    width: 32px;
+    padding: 0;
+  }
 }
 
 /* The header sits in a box with exactly the same horizontal geometry as the
@@ -697,6 +834,134 @@ function boltTitle(p: Profile) {
 .list.sortable .node {
   touch-action: none;
 }
+/* the download speed, under the latency */
+.speed {
+  font: 600 10.5px var(--mono);
+  color: var(--text-2);
+  white-space: nowrap;
+  text-align: center;
+}
+.speed.live {
+  color: var(--accent);
+}
+.speed.bad {
+  color: var(--bad);
+}
+.list:not(.grid) .node.has-speed .lat {
+  grid-column: 5;
+  grid-row: 1;
+  align-self: start;
+  margin-top: 8px;
+}
+.list:not(.grid) .node.has-speed .speed {
+  grid-column: 5;
+  grid-row: 1;
+  align-self: end;
+  margin-bottom: 7px;
+}
+.list:not(.grid) .node-actions {
+  grid-column: 6;
+  grid-row: 1;
+}
+
+/* ---- grid: cards of name, protocol and latency; the server shows on hover */
+.list.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  align-content: start;
+  gap: 8px;
+}
+.list.grid .node {
+  height: auto;
+  min-height: 70px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-auto-rows: auto;
+  gap: 6px 8px;
+  padding: 10px 12px;
+  align-content: center;
+}
+.list.grid .radio,
+.list.grid .traffic,
+.list.grid .copy-ip,
+.list.grid .node-actions {
+  display: none;
+}
+.list.grid .node-name {
+  grid-column: 1 / 3;
+}
+.list.grid .node-type {
+  grid-column: 1;
+  justify-self: start;
+}
+.list.grid .lat {
+  grid-column: 2;
+  justify-self: end;
+}
+.list.grid .node-server,
+.list.grid .node-route {
+  grid-column: 1 / 3;
+  grid-row: 2;
+  min-width: 0;
+  font-size: 11px;
+}
+.list.grid .node-type {
+  grid-row: 3;
+}
+.list.grid .lat {
+  grid-row: 3;
+}
+.list.grid .speed {
+  grid-column: 1 / 3;
+  text-align: left;
+}
+.list.grid .empty {
+  grid-column: 1 / -1;
+}
+
+/* ---- toolbar: test button with its menu, list / grid */
+.split {
+  display: flex;
+}
+.split > .btn {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.split :deep(.menu-wrap > .btn) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left-color: color-mix(in srgb, #fff 40%, var(--accent));
+  width: 28px;
+}
+.split :deep(.chev-down svg) {
+  transform: rotate(90deg);
+}
+.view-switch {
+  display: flex;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--card);
+  flex-shrink: 0;
+}
+.view-switch button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.view-switch button:hover {
+  color: var(--text);
+}
+.view-switch button.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .node-actions {
   display: flex;
   justify-content: flex-end;

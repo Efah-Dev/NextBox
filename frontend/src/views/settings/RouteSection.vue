@@ -1,9 +1,7 @@
 <script setup lang="ts">
-// 分流规则: the routing mode, and in rule mode the rules, in one of three
-// looks the user picks (simplest first):
-// - 服务目录 (apps): well-known services with icons, each sent somewhere with
-//   one pick (ServiceCatalog); a pick is an ordinary rule at the top.
-// - 卡片 (cards): the look of v2.0, scene cards and a list of the user's own
+// 分流规则: the routing mode, and in rule mode the rules, in one of two
+// looks the user picks:
+// - 卡片 (cards, the default): the look of v2.0, scene cards and a list of the user's own
 //   rules. The places of ad blocking and the scenes stay where they are;
 //   dragging only reorders the user's rules among themselves.
 // - 路由路径 (path): the route every connection takes, from top to bottom.
@@ -11,20 +9,19 @@
 //   blocking, the scenes and the user's own rules are steps that can be
 //   dragged into any order. A test lights the path up to the step that
 //   matches. The steps that are off can be hidden.
-// All share the data (Settings.Rules with the step places), the tester and a
-// reset to the defaults; cards and path also the text mode. The first time
-// the section is seen, a guide helps choosing the look (RouteStyleGuide).
+// Both share the data (Settings.Rules with the step places), the tester, the
+// text mode and a reset to the defaults. (Rules picked in the former service
+// catalog are ordinary rules with an app field; they show in both looks.)
 import { t } from '../../i18n'
 import ResolveDns from './ResolveDns.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import HelpTip from '../../components/HelpTip.vue'
 import Card from '../../components/Card.vue'
 import Icon from '../../components/Icon.vue'
 import Switch from '../../components/Switch.vue'
 import Segmented from '../../components/Segmented.vue'
 import RuleFields from './RuleFields.vue'
 import RuleSetEditor from './RuleSetEditor.vue'
-import ServiceCatalog from './ServiceCatalog.vue'
-import RouteStyleGuide from './RouteStyleGuide.vue'
 import { api, type Rule, type RouteMatch, type RouteView, type Settings } from '../../api'
 import { serviceOf } from '../../services'
 import { useDragSort } from '../../drag'
@@ -35,7 +32,7 @@ import {
 import { confirmDialog, run, toast } from '../../util'
 import { state } from '../../state'
 
-const props = defineProps<{ form: Settings; index: number }>()
+const props = defineProps<{ form: Settings }>()
 const form = props.form
 
 const mirrors = [
@@ -50,8 +47,9 @@ const ruleMode = computed(() => form.routeMode === 'rule')
 // how "bypass mainland China" resolves names (see ResolveDns.vue)
 const resolveLabel = computed(() => (form.bypassDns === 'direct' ? t('直连 DNS 解析') : t('接管 DNS 解析')))
 
+// cards for new installs; settings from before 2.5 without a choice showed the path
 const view = computed<RouteView>({
-  get: () => (form.routeView === 'cards' || form.routeView === 'apps' ? form.routeView : 'path'),
+  get: () => (form.routeView === 'cards' ? 'cards' : 'path'),
   set: (v) => (form.routeView = v),
 })
 const hideOff = computed({ get: () => !!form.routeHideOff, set: (v: boolean) => (form.routeHideOff = v) })
@@ -59,29 +57,16 @@ const hideOff = computed({ get: () => !!form.routeHideOff, set: (v: boolean) => 
 const stepHidden = (r: Rule) =>
   hideOff.value && ((r.kind === 'scene' && !sceneOf(r.values[0])?.enabled) || (r.kind === 'ads' && !form.blockAds))
 
-// ---- the guide, once: when the top of the section has come up past the
-// lower part of the window (a share of the card would never be reached by a
-// long list of rules)
-const guideOpen = ref(false)
-let seen: IntersectionObserver | undefined
-onMounted(() => {
-  refreshPolicies()
-  const el = document.getElementById('sec-route')
-  if (form.routeViewAsked || !el || !('IntersectionObserver' in window)) return
-  seen = new IntersectionObserver(
-    (entries) => {
-      if (!entries.some((e) => e.isIntersecting) || form.routeViewAsked) return
-      seen?.disconnect()
-      guideOpen.value = true
-    },
-    { rootMargin: '0px 0px -40% 0px' },
-  )
-  seen.observe(el)
-})
-onUnmounted(() => seen?.disconnect())
-function guideDone(v: RouteView | null) {
-  form.routeViewAsked = true
-  if (v) view.value = v
+onMounted(refreshPolicies)
+
+// rows keep their key while rules are added, removed or moved, so that only
+// the row that changed animates (ListMotion)
+const rowKeys = new WeakMap<object, number>()
+let rowSeq = 0
+function rowKey(r: object) {
+  let k = rowKeys.get(r)
+  if (k === undefined) rowKeys.set(r, (k = ++rowSeq))
+  return k
 }
 
 // ---- the path: position 0 = LAN, 1..n = form.rules, n + 1 = everything else
@@ -255,6 +240,24 @@ const testing = ref(false)
 const hitPos = ref(-2) // -1 = the excluded ranges
 const shown = ref(-2) // the path is lit up to here
 let timer = 0
+// the result is lit for LIT_MS, then fades out over FADE_MS; the line of
+// text under the tester stays
+const LIT_MS = 2400
+const FADE_MS = 600
+const lit = ref(false)
+const fading = ref(false)
+let litTimer = 0
+function light(extra = 0) {
+  clearTimeout(litTimer)
+  lit.value = true
+  fading.value = false
+  litTimer = window.setTimeout(() => {
+    lit.value = false
+    fading.value = true
+    litTimer = window.setTimeout(() => (fading.value = false), FADE_MS)
+  }, LIT_MS + extra)
+}
+onUnmounted(() => clearTimeout(litTimer))
 const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
 async function test() {
@@ -282,8 +285,10 @@ async function test() {
   hitPos.value = pos
   if (reduceMotion || pos <= 0 || view.value !== 'path') {
     shown.value = pos
+    light()
     return
   }
+  light(pos * 70)
   shown.value = 0
   timer = window.setInterval(() => {
     shown.value++
@@ -302,7 +307,7 @@ watch(
 )
 
 function stnClass(pos: number) {
-  const tested = hitPos.value > -2
+  const tested = hitPos.value > -2 && lit.value
   return {
     skip: !activeAt(pos),
     pass: tested && pos < shown.value && pos < hitPos.value && activeAt(pos),
@@ -310,8 +315,8 @@ function stnClass(pos: number) {
     after: tested && shown.value >= hitPos.value && pos > hitPos.value,
   }
 }
-const hitRule = (i: number) => match.value?.source === 'rule' && match.value.index === i
-const hitScene = (id: string) => match.value?.source === 'scene' && match.value.scene === id
+const hitRule = (i: number) => lit.value && match.value?.source === 'rule' && match.value.index === i
+const hitScene = (id: string) => lit.value && match.value?.source === 'scene' && match.value.scene === id
 
 const verdict = computed(() => {
   const m = match.value
@@ -342,7 +347,7 @@ const verdict = computed(() => {
 </script>
 
 <template>
-  <Card id="sec-route" :title="t('分流规则')" :index="index">
+  <Card id="sec-route" :title="t('分流规则')" :class="{ fading }">
     <div class="form-row">
       <div class="label">{{ t('路由模式') }}</div>
       <div class="control">
@@ -358,32 +363,31 @@ const verdict = computed(() => {
       </div>
     </div>
     <div class="form-row">
-      <div class="label">{{ t('规则样式') }}<span class="hint">{{ t('三种样式改的是同一份规则') }}</span></div>
+      <div class="label">
+        <span>{{ t('规则样式') }}<HelpTip :text="t('卡片：常用场景单独显示，自己的规则排在下面。路由路径：所有步骤按匹配顺序排成一列，可以调整场景和规则之间的先后。两种样式编辑的是同一份规则。')" /></span>
+      </div>
       <div class="control">
         <Segmented
           v-model="view"
-          style="width: 330px"
+          style="width: 220px"
           :options="[
-            { value: 'apps', label: t('服务目录') },
             { value: 'cards', label: t('卡片') },
             { value: 'path', label: t('路由路径') },
           ]"
         />
-        <button class="btn ghost small" :title="t('按熟悉程度推荐样式，带动画演示')" @click="guideOpen = true">{{ t('帮我选') }}</button>
       </div>
     </div>
     <div v-if="view !== 'path'" class="form-row">
-      <div class="label">{{ t('屏蔽广告') }}<span class="hint">{{ t('拦截广告域名，所有模式都生效') }}</span></div>
+      <div class="label">{{ t('屏蔽广告') }}<span class="hint">{{ t('拦截广告与跟踪域名，各模式均生效') }}</span></div>
       <div class="control"><Switch v-model="form.blockAds" /></div>
     </div>
 
     <div class="mode-note" :class="{ off: !ruleMode }">
       <Icon name="route" :size="16" />
-      <span v-if="form.routeMode === 'global'">{{ t('全局代理：除了局域网和屏蔽广告，所有流量都走当前节点，下面的规则和场景暂不生效。') }}</span>
-      <span v-else-if="form.routeMode === 'direct'">{{ t('全部直连：不使用代理，下面的规则和场景暂不生效。') }}</span>
-      <span v-else-if="view === 'path'">{{ t('每个连接从上往下依次判断，在哪一步命中就从哪一步出去。拖动左边的把手调整先后顺序。') }}</span>
-      <span v-else-if="view === 'apps'">{{ t('给常用服务单独选择走当前节点、直连还是某个分组；没有单独指定的服务，跟随常用场景和「其余流量」。') }}</span>
-      <span v-else>{{ t('打开需要的常用场景，再添加自己的规则。规则从上往下匹配，拖动调整顺序；要调整场景和规则之间的先后，请切换到「路由路径」样式。') }}</span>
+      <span v-if="form.routeMode === 'global'">{{ t('全局代理：除局域网和广告拦截外，全部流量经当前节点；规则与场景暂不生效。') }}</span>
+      <span v-else-if="form.routeMode === 'direct'">{{ t('全部直连：不经过代理；规则与场景暂不生效。') }}</span>
+      <span v-else-if="view === 'path'">{{ t('按顺序逐步匹配，命中即按该步出站。拖动左侧手柄调整顺序。') }}</span>
+      <span v-else>{{ t('开启所需场景并添加规则。规则自上而下匹配，可拖动排序；如需调整场景与规则的先后，请切换到「路由路径」。') }}</span>
       <button v-if="!ruleMode" class="btn small" @click="form.routeMode = 'rule'">{{ t('切换到规则分流') }}</button>
     </div>
 
@@ -412,7 +416,7 @@ const verdict = computed(() => {
       </div>
 
       <div v-if="!textMode" class="path">
-        <div v-if="excluded.length" class="stn entry" :class="{ hit: hitPos === -1 }">
+        <div v-if="excluded.length" class="stn entry" :class="{ hit: lit && hitPos === -1 }">
           <span class="no"><Icon name="tun" :size="12" /></span>
           <div class="box">
             <span />
@@ -437,9 +441,10 @@ const verdict = computed(() => {
         </div>
 
         <div ref="pathEl" class="steps" :class="{ 'sort-settling': pathSorter.drag.settling }">
+          <TransitionGroup name="nb-rows">
           <div
             v-for="(x, k) in pathItems"
-            :key="x.i"
+            :key="rowKey(x.r)"
             class="stn"
             :class="[stnClass(x.i + 1), pathSorter.classes(k), { android: x.r.kind === 'package', fresh: x.r === freshRule }]"
             :style="pathSorter.style(k)"
@@ -478,6 +483,7 @@ const verdict = computed(() => {
               <span v-if="x.r === freshRule" class="fresh-tag">{{ t('新规则') }}</span>
             </div>
           </div>
+          </TransitionGroup>
         </div>
 
         <div class="stn fixed" :class="stnClass(last)">
@@ -493,9 +499,6 @@ const verdict = computed(() => {
         </div>
       </div>
     </template>
-
-    <!-- ============================================================= catalog -->
-    <ServiceCatalog v-else-if="view === 'apps'" :form="form" :match="match" @view="view = $event" />
 
     <!-- =============================================================== cards -->
     <template v-else>
@@ -535,9 +538,10 @@ const verdict = computed(() => {
           <button v-if="!textMode" class="btn small primary" @click="addRule"><Icon name="plus" :size="13" /> {{ t('添加规则') }}</button>
         </div>
         <div v-if="!textMode" ref="listEl" class="rules" :class="{ 'sort-settling': listSorter.drag.settling }">
+          <TransitionGroup name="nb-rows">
           <div
             v-for="(x, k) in ownItems"
-            :key="x.i"
+            :key="rowKey(x.r)"
             class="rule"
             :class="[{ off: x.r.disabled || x.r.kind === 'package', hit: hitRule(x.i), fresh: x.r === freshRule }, listSorter.classes(k)]"
             :style="listSorter.style(k)"
@@ -549,8 +553,9 @@ const verdict = computed(() => {
             <RuleFields :rule="x.r" :note="skipNote(x.r)" @remove="removeRule(x.i)" />
             <span v-if="x.r === freshRule" class="fresh-tag">{{ t('新规则') }}</span>
           </div>
+          </TransitionGroup>
           <div v-if="!ownItems.length" class="empty-rules faint">
-            {{ t('还没有规则。常用场景已经能满足大多数需要；想让某个网站或程序单独直连、走代理或走某个分组代理，就添加一条规则。') }}
+            {{ t('暂无规则。常用场景已覆盖大多数需求；如需为特定网站或程序指定出口，请添加规则。') }}
           </div>
         </div>
       </div>
@@ -566,7 +571,6 @@ const verdict = computed(() => {
       </p>
     </template>
 
-    <RouteStyleGuide v-model="guideOpen" :current="view" @done="guideDone" />
     <RuleSetEditor v-model="newSetOpen" @save="addSet" />
 
     <!-- shared by all looks -->
@@ -579,8 +583,8 @@ const verdict = computed(() => {
           <span v-if="hideOff && hiddenCount" class="faint small">{{ t('已隐藏 {0} 个', hiddenCount) }}</span>
         </label>
         <p v-if="!textMode && ruleMode && view === 'path' && !ownCount" class="faint small hint-line">
-          <span>{{ t('还没有自己的规则。') }}</span>
-          <span>{{ t('想让某个网站或程序单独直连、走代理或走某个分组代理，点「添加规则」。') }}</span>
+          <span>{{ t('暂无自定义规则。') }}</span>
+          <span>{{ t('如需为特定网站或程序指定出口，请点「添加规则」。') }}</span>
         </p>
       </div>
       <button class="btn ghost small reset" :title="t('删除自己的规则，场景和顺序恢复成刚安装时的样子')" @click="resetRules">
@@ -589,7 +593,7 @@ const verdict = computed(() => {
     </div>
 
     <div class="form-row mirror">
-      <div class="label">{{ t('规则集镜像') }}<span class="hint">{{ t('网站分类和 IP 归属地从这里下载') }}</span></div>
+      <div class="label">{{ t('规则集镜像') }}<span class="hint">{{ t('网站分类与 IP 归属地规则集的下载源') }}</span></div>
       <div class="control">
         <select v-model="form.ruleSetMirror" class="select">
           <option v-for="m in mirrors" :key="m.value" :value="m.value">{{ m.label }}</option>
@@ -828,7 +832,13 @@ select.to-proxy {
   min-width: 0;
 }
 
-/* skipped, passed and hit while testing */
+/* skipped, passed and hit while testing; the result fades out slowly */
+.fading .stn .no,
+.fading .stn .box,
+.fading .scene,
+.fading .rule {
+  transition-duration: 0.6s;
+}
 .stn.skip .box {
   opacity: 0.5;
 }

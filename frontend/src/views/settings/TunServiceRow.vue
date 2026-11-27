@@ -6,6 +6,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { t } from '../../i18n'
 import Icon from '../../components/Icon.vue'
+import HelpTip from '../../components/HelpTip.vue'
 import { api, type ServiceInfo } from '../../api'
 import { state } from '../../state'
 import { confirmDialog, run } from '../../util'
@@ -65,50 +66,32 @@ async function uninstall() {
 </script>
 
 <template>
-  <div class="svc">
-    <div class="svc-head">
-      <Icon name="shield" :size="16" />
-      <b>{{ t('服务模式') }}</b>
-      <span class="chip" :class="status.cls">{{ status.text }}</span>
-      <span class="spacer" />
-      <button class="btn ghost small icon" :title="t('刷新')" @click="refresh"><Icon name="refresh" :size="13" /></button>
+  <div class="form-row svc">
+    <div class="label">
+      <span>{{ t('服务模式') }}<HelpTip :title="t('服务模式')">{{ t('安装一个 Windows 服务，由它以系统权限运行 TUN 模式的内核。只在安装和卸载时需要一次管理员授权；之后开启 TUN 模式不必以管理员身份运行 NextBox，开机启动也改由服务在登录 Windows 时完成。') }}
+
+{{ t('安装位置：') }}{{ info?.dir || 'C:\Program Files\NextBox Service' }}
+
+{{ t('不安装服务时，以管理员身份运行 NextBox 同样可以使用 TUN 模式。') }}</HelpTip></span>
+      <span class="hint">{{ state.app?.elevated ? t('当前以管理员身份运行，不经过服务') : t('无需管理员即可使用 TUN') }}</span>
     </div>
-    <p class="faint text">
-      {{ t('可选。安装一个 Windows 服务，由它以系统权限运行 TUN 模式的内核：只在安装和卸载时需要一次管理员授权，之后开启 TUN 模式不用再以管理员身份运行 NextBox，开机自启也改由服务在你登录 Windows 时启动 NextBox，不受启动项管理影响。') }}
-    </p>
-    <p class="faint text">
-      {{ t('安装位置：') }}<span class="mono path">{{ info?.dir || 'C:\\Program Files\\NextBox Service' }}</span>{{ t('（服务程序和一份内核，只有管理员能修改）。不想安装也没关系：以管理员身份运行 NextBox 一样可以使用 TUN 模式。') }}
-    </p>
-    <p v-if="info && !info.canInstall" class="warn-line"><Icon name="warn" :size="13" /> {{ t('程序目录的 core 文件夹里缺少 NextBoxService.exe，请重新下载完整的 NextBox。') }}</p>
-    <p v-if="info?.problem === 'outdated'" class="faint text">{{ t('服务来自另一个版本的 NextBox，或使用的内核和程序目录里的不同。点「更新服务」同步。') }}</p>
-    <p v-if="info?.problem === 'error' && info.detail" class="warn-line"><Icon name="warn" :size="13" /> {{ info.detail }}</p>
-    <div class="actions">
-      <button class="btn small primary" :disabled="!!busy || !info?.canInstall" @click="install">
+    <div class="control">
+      <span class="chip" :class="status.cls">{{ status.text }}</span>
+      <button class="btn ghost small icon" :title="t('刷新')" @click="refresh"><Icon name="refresh" :size="13" /></button>
+      <button v-if="info?.installed" class="btn small danger" :disabled="!!busy" @click="uninstall">
+        {{ busy === 'uninstall' ? t('请在弹出的窗口中授权…') : t('卸载') }}
+      </button>
+      <button v-if="!info?.installed || info?.problem" class="btn small primary" :disabled="!!busy || !info?.canInstall" @click="install">
         <Icon name="admin" :size="13" /> {{ busy === 'install' ? t('请在弹出的窗口中授权…') : installLabel }}
       </button>
-      <button v-if="info?.installed" class="btn small danger" :disabled="!!busy" @click="uninstall">
-        {{ busy === 'uninstall' ? t('请在弹出的窗口中授权…') : t('卸载服务') }}
-      </button>
-      <span v-if="state.app?.elevated" class="faint small">{{ t('当前以管理员身份运行，TUN 模式不经过服务') }}</span>
     </div>
   </div>
+  <p v-if="info && !info.canInstall" class="warn-line"><Icon name="warn" :size="13" /> {{ t('程序目录的 core 文件夹里缺少 NextBoxService.exe，请重新下载完整的 NextBox。') }}</p>
+  <p v-if="info?.problem === 'outdated'" class="warn-line mid"><Icon name="info" :size="13" /> {{ t('服务来自另一个版本的 NextBox，或使用的内核和程序目录里的不同。点「更新服务」同步。') }}</p>
+  <p v-if="info?.problem === 'error' && info.detail" class="warn-line"><Icon name="warn" :size="13" /> {{ info.detail }}</p>
 </template>
 
 <style scoped>
-.svc {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  margin: 4px 0 10px;
-}
-.svc-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.svc-head b {
-  font-size: 13px;
-}
 .chip {
   font-size: 11px;
   font-weight: 700;
@@ -116,6 +99,7 @@ async function uninstall() {
   border-radius: 999px;
   background: var(--hover);
   color: var(--text-2);
+  white-space: nowrap;
 }
 .chip.good {
   color: var(--good);
@@ -129,33 +113,15 @@ async function uninstall() {
   color: var(--mid);
   background: color-mix(in srgb, var(--mid) 14%, var(--card));
 }
-.spacer {
-  flex: 1;
-}
-.text {
-  margin: 8px 0 0;
-  font-size: 12px;
-  line-height: 1.7;
-}
-.path {
-  font-size: 11.5px;
-  color: var(--text-2);
-}
 .warn-line {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 8px 0 0;
+  margin: 0 0 8px;
   font-size: 12px;
   color: var(--bad);
 }
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-.small {
-  font-size: 11.5px;
+.warn-line.mid {
+  color: var(--mid);
 }
 </style>

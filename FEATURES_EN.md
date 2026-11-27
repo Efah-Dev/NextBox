@@ -16,17 +16,18 @@
 - **Subscriptions**: Base64 link lists, Clash / Clash.Meta YAML, sing-box JSON; used traffic and expiry date; optional automatic updates. Updates keep your order and add new nodes at the end
 - **Clash conversion**: the groups of a subscription become policy groups, its rules become rule sets (one per target), its DNS settings DNS overrides; you tick what to take the first time (rules are off by default), and it follows every update. *Clash subscription content* in the group menu chooses again
 - **Subscription DNS**: when a subscription names its provider's own DNS servers, the import offers them; they are used only for that subscription's nodes, without touching other subscriptions or the global DNS. Switch them per subscription in *Settings → DNS → Subscription DNS*
-- **Nodes**: edit common fields in a form or the full sing-box outbound JSON; drag to reorder; search, delete in bulk; remove duplicates; export share links
+- **Import**: Ctrl+V, the Import button or a file dropped on the window; NextBox tells subscription links, node links, Clash / sing-box configs and NextBox backups apart, and names a subscription from its link or server (it asks only when neither has a name)
+- **Nodes**: edit common fields in a form or the full sing-box outbound JSON; list or grid view, right-click a node for its actions; drag to reorder; search, delete in bulk; remove duplicates; export share links
 - **Flags and search by country**: a flag in front of every node, from the exit IP by default or the server IP; searching "Hong Kong" finds HK, 🇭🇰 and 香港
 - **Chain proxies**: traffic through 2 to 8 nodes in turn, members from any group, the whole chain can be tested before saving
 - **Switching without dropping**: the nodes of a group are loaded at once, so switching does not restart the core or break open connections
-- **Latency tests**: one click tests the way the settings say, TCP by default or URL; UDP protocols and chains always use the URL test. After testing a whole group the nodes go back to the order of the subscription, are sorted by latency or stay as they are, asked once on the first test and changed later in *Settings → Subscriptions & tests*
+- **Latency tests**: one click tests the way the settings say, by URL (the default for new installs) or TCP; UDP protocols and chains always use the URL test. After testing a whole group the nodes go back to the order of the subscription, are sorted by latency or stay as they are, asked once on the first test and changed later in *Settings → Subscriptions & tests*
+- **Download speed test**: downloads a test file through one node after another; the time and data per node can be set (10 s / 50 MB by default), and so can the file
 
 ### Routing
 
 - **Route modes**: global / rule / direct
-- **Three looks** for the same rules:
-  - **Service catalog**: 50+ common services with icons, one tap for where each goes
+- **Two looks** for the same rules:
   - **Cards**: switch on scenes (AI services, streaming, game downloads direct, bypass mainland China) and add rules of your own
   - **Route path**: the order every connection is checked in as one line; ad blocking, scenes, rules and rule sets can be dragged into order; steps that are off can be hidden
 - **Tester**: type an address or IP and the path shows the step that catches it, and why
@@ -34,7 +35,7 @@
 - **Rule sets**: domains, IPs, programs, site categories, IP regions and online sing-box rule-sets or Clash rule providers (YAML / text) in one named set with one target; bulk paste
 - **Right click on a connection**: add it to a rule set or make a new rule, by the site with its subdomains, the full name or the program; undo right away
 - **Bypass mainland China**: built-in Chinese domain and IP rules, no download. Known foreign sites and sites on the mainland China list are not resolved; the rest are resolved with the remote DNS through the proxy (default, never poisoned) or the direct DNS
-- **Policy groups**: group nodes by region, name keywords or by hand, use the fastest or a chosen one, and send different sites through different groups
+- **Policy groups**: group nodes by region, name keywords or by hand, use the fastest or a chosen one, and send different sites through different groups; you can also connect through a policy group (traffic is still counted per node), and an automatic group has its own test interval
 - **Ad blocking**: in every route mode
 
 ### Connection and system
@@ -44,7 +45,8 @@
 - **DNS**: remote DNS through the proxy, direct DNS locally; UDP / TCP / DoT / DoQ / DoH / DoH3. **DNS overrides** send chosen domains to another DNS server or give them fixed IPs
 - **Exit info**: the home page shows the exit IP (masked), country, network (ASN) and a status light; a failed check is retried after 30 seconds
 - **Start with Windows**: shows whether it really works, with the reason and a fix when it does not; with service mode the service starts NextBox at logon
-- **Tray**: stays in the tray when closed; the menu starts or stops the proxy, switches nodes, route modes and TUN
+- **Tray**: stays in the tray when closed; the right-click menu connects and disconnects, switches the system proxy, TUN and the route mode, and picks a node per subscription (each with a latency test button) or a policy group; it follows the dark theme, and what it shows can be chosen in Settings
+- **Hotkeys**: system-wide keys for connect, system proxy, TUN, route mode, show window and latency test; none are set by default
 - **Connections and logs**: live connections with the matched rule and exit node; log filter; optional log files
 
 ### Data and look
@@ -61,7 +63,7 @@
 
 | | |
 |---|---|
-| Version | **sing-box 1.14.4**, `stable` branch (tag [`v1.14.4`](https://github.com/SagerNet/sing-box/tree/v1.14.4)) |
+| Version | **sing-box 1.14.5**, `stable` branch (tag [`v1.14.5`](https://github.com/SagerNet/sing-box/tree/v1.14.5)) |
 | Toolchain | Go 1.27.3, `windows/amd64`, CGO off |
 | Build tags | `with_gvisor, with_quic, with_dhcp, with_wireguard, with_utls, with_clash_api, with_naive_outbound, with_purego, badlinkname, tfogo_checklinkname0` |
 
@@ -129,6 +131,7 @@ Switching to another group, editing a node or changing settings such as the rout
 
 ## What each version added
 
+- **2.5.0**: tray menu, hotkeys, drag-and-drop import, grid view, download speed test, connecting through a policy group, sing-box 1.14.5
 - **2.4.0**: Clash conversion, subscription DNS, DNS overrides, rules from the connections page, sorting by latency after a test, updates keep the order, appearance in backups
 - **2.3.0**: rule sets, service mode, matched rules on the connections page, picking programs, settings search
 - **2.2.0**: service catalog, several site categories at once, removing duplicates, ASN of the exit IP

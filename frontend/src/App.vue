@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, watchEffect } from 'vue'
+import { onMounted, onUnmounted, ref, watchEffect } from 'vue'
 import TitleBar from './components/TitleBar.vue'
-import Toasts from './components/Toasts.vue'
+import Notices from './components/Notices.vue'
+import DropZone from './components/DropZone.vue'
+import { importText } from './importer'
 import DialogHost from './components/DialogHost.vue'
 import ClashImportDialog from './components/ClashImportDialog.vue'
 import CountryNotice from './components/CountryNotice.vue'
@@ -49,11 +51,26 @@ onMounted(async () => {
   try {
     await init()
     rt.on('error', (msg: string) => toast(msg, 'error'))
+    rt.on('notice', (n: { text: string; kind: 'info' | 'success' | 'error' }) => toast(n.text, n.kind))
     ready.value = true
   } catch (e) {
     fatal.value = (e as Error).message
   }
 })
+
+// Ctrl+V on the home and node pages imports what the clipboard holds; in a
+// text field, or with a dialog open, it is an ordinary paste.
+async function onKey(e: KeyboardEvent) {
+  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'v') return
+  if (!ready.value || state.app?.locked || (state.page !== 'home' && state.page !== 'nodes')) return
+  const el = document.activeElement as HTMLElement | null
+  if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
+  if (document.querySelector('.mask')) return
+  e.preventDefault()
+  importText(await rt.clipboardGet())
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
@@ -68,7 +85,8 @@ onMounted(async () => {
         </div>
       </div>
     </Transition>
-    <Toasts />
+    <Notices />
+    <DropZone v-if="ready" />
     <DialogHost />
     <ClashImportDialog />
     <CountryNotice />

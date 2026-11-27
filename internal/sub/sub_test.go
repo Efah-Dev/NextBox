@@ -87,3 +87,19 @@ func TestParseUserInfo(t *testing.T) {
 		t.Errorf("parsed: %+v", u)
 	}
 }
+
+func TestTitle(t *testing.T) {
+	for _, c := range []struct{ k, v, want string }{
+		{"profile-title", "My Air", "My Air"},
+		{"profile-title", "base64:5py65Zy6", "机场"},
+		{"Content-Disposition", `attachment; filename*=UTF-8''%E6%9C%BA%E5%9C%BA.yaml`, "机场"},
+		{"Content-Disposition", `attachment; filename="air.txt"`, "air"},
+		{"X-Other", "x", ""},
+	} {
+		h := http.Header{}
+		h.Set(c.k, c.v)
+		if got := Title(h); got != c.want {
+			t.Errorf("Title(%s: %s) = %q, want %q", c.k, c.v, got, c.want)
+		}
+	}
+}

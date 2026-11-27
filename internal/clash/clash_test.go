@@ -15,7 +15,7 @@ proxies:
   - {name: "JP 01", type: ss, server: c.example, port: 1, cipher: aes-128-gcm, password: x}
 proxy-groups:
   - {name: Proxy, type: select, proxies: [Auto, HK, "JP 01", DIRECT]}
-  - {name: Auto, type: url-test, include-all: true}
+  - {name: Auto, type: url-test, include-all: true, interval: 300}
   - {name: HK, type: select, include-all: true, filter: "HK"}
   - {name: Empty, type: select, proxies: [DIRECT]}
 rule-providers:
@@ -98,7 +98,7 @@ func TestApply(t *testing.T) {
 	}
 	pols := st.Policies()
 	hk := pols[policyAt(pols, "HK")]
-	if len(hk.Members) != 2 || hk.Mode != store.PolicySelect || pols[policyAt(pols, "Auto")].Mode != store.PolicyAuto {
+	if len(hk.Members) != 2 || hk.Mode != store.PolicySelect || pols[policyAt(pols, "Auto")].Mode != store.PolicyAuto || pols[policyAt(pols, "Auto")].Interval != 5 {
 		t.Errorf("policies %+v", pols)
 	}
 	s := st.Settings()

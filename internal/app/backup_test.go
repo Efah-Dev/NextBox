@@ -139,6 +139,7 @@ func TestMergeSettings(t *testing.T) {
 func TestAppearancePart(t *testing.T) {
 	s := store.DefaultSettings()
 	s.Theme, s.AccentColor, s.RecentColors, s.MixedPort = "dark", "#123456", []string{"#123456"}, 7890
+	s.NodeView, s.TrayItems = "grid", []string{"mode"}
 	raw, _ := json.Marshal(s)
 	look, err := keepParts(raw, BackupOptions{Appearance: true})
 	if err != nil {
@@ -171,22 +172,22 @@ func TestAppearancePart(t *testing.T) {
 }
 
 func TestLegacyTestMode(t *testing.T) {
-	old := backupDoc{Settings: json.RawMessage(`{"testUrl":"x"}`), Android: json.RawMessage(`{"latencyMode":"url"}`)}
+	old := backupDoc{Settings: json.RawMessage(`{"testUrl":"x"}`), Android: json.RawMessage(`{"latencyMode":"tcp"}`)}
 	s := store.DefaultSettings()
 	legacyTestMode(&s, old)
-	if s.TestMode != store.TestURL {
+	if s.TestMode != store.TestTCP {
 		t.Errorf("old Android backup: %q", s.TestMode)
 	}
-	// a backup with the shared setting keeps it
+	// a backup with the shared setting: the old preference is not used (mergeSettings takes the shared one)
 	s = store.DefaultSettings()
-	legacyTestMode(&s, backupDoc{Settings: json.RawMessage(`{"testMode":"tcp"}`), Android: json.RawMessage(`{"latencyMode":"url"}`)})
-	if s.TestMode != store.TestTCP {
+	legacyTestMode(&s, backupDoc{Settings: json.RawMessage(`{"testMode":"tcp"}`), Android: json.RawMessage(`{"latencyMode":"tcp"}`)})
+	if s.TestMode != store.TestURL {
 		t.Errorf("shared setting overridden: %q", s.TestMode)
 	}
 	// from Windows: no preferences at all
 	s = store.DefaultSettings()
 	legacyTestMode(&s, backupDoc{Settings: json.RawMessage(`{}`)})
-	if s.TestMode != store.TestTCP {
+	if s.TestMode != store.TestURL {
 		t.Errorf("without preferences: %q", s.TestMode)
 	}
 }

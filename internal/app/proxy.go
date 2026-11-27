@@ -10,6 +10,7 @@ import (
 	"nextbox/internal/i18n"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -97,6 +98,15 @@ func (a *App) startLocked() error {
 			node = &p
 		}
 	}
+	// a policy group instead of the node: its first member stands in when
+	// no node was ever chosen
+	policy, members, err := a.policyForConnect()
+	if err != nil {
+		return err
+	}
+	if policy.ID != 0 && node == nil {
+		node = &members[0]
+	}
 	port, err := core.FreePort()
 	if err != nil {
 		return err
@@ -113,6 +123,12 @@ func (a *App) startLocked() error {
 	}
 	if node != nil {
 		in.Policies = a.policyInputs(s)
+		if policy.ID != 0 {
+			in.Main = policy.ID
+			if !slices.ContainsFunc(in.Policies, func(pi config.PolicyInput) bool { return pi.Policy.ID == policy.ID }) {
+				in.Policies = append(in.Policies, config.PolicyInput{Policy: policy, Members: members})
+			}
+		}
 	}
 	if node != nil {
 		for _, p := range a.store.Profiles(node.GroupID) {
@@ -126,7 +142,9 @@ func (a *App) startLocked() error {
 		return err
 	}
 
-	if node != nil {
+	if policy.ID != 0 {
+		a.log(i18n.T("正在连接分组代理: ") + policy.Name)
+	} else if node != nil {
 		a.log(i18n.T("正在连接: ") + node.Name)
 	} else {
 		a.log(i18n.T("正在启动直连模式"))
@@ -165,7 +183,11 @@ func (a *App) startLocked() error {
 		}
 		// The core remembers the last selection in its cache file and would
 		// prefer it over the configured default.
-		if err := proc.API.SelectProxy(a.ctx, config.TagProxy, nodeTags[nodeID]); err != nil {
+		main := nodeTags[nodeID]
+		if tag := policyTags[policy.ID]; tag != "" {
+			main = tag
+		}
+		if err := proc.API.SelectProxy(a.ctx, config.TagProxy, main); err != nil {
 			proc.Stop()
 			a.log(err.Error())
 			return err
@@ -181,6 +203,10 @@ func (a *App) startLocked() error {
 	a.runningID = nodeID
 	a.loaded = loaded
 	a.nodeTags, a.policyTags = nodeTags, policyTags
+	a.runningPolicy = 0
+	if policyTags[policy.ID] != "" {
+		a.runningPolicy = policy.ID
+	}
 	a.routeRules = s.Rules
 	a.tunActive = s.TunEnabled
 	a.startedAt = time.Now()
@@ -195,6 +221,10 @@ func (a *App) startLocked() error {
 	}
 	go a.trafficLoop(trafficCtx, proc)
 	go a.exitLoop(trafficCtx)
+	go a.policyLoop(trafficCtx)
+	if a.runningPolicy != 0 {
+		go a.followPolicy()
+	}
 	go a.watch(proc)
 	a.log(i18n.T("内核已启动，混合代理端口 ") + strconv.Itoa(s.MixedPort))
 	return nil
@@ -328,7 +358,7 @@ func (a *App) switchNode(id int64) bool {
 		return false
 	}
 	a.mu.Lock()
-	proc, node, current := a.proc, a.loaded[id], a.runningID == id
+	proc, node, current := a.proc, a.loaded[id], a.runningID == id && a.runningPolicy == 0
 	a.mu.Unlock()
 	if proc == nil || node.tag == "" || node.outbound != a.outboundKey(p) {
 		return false
@@ -342,7 +372,7 @@ func (a *App) switchNode(id int64) bool {
 	}
 	a.mu.Lock()
 	if a.proc == proc {
-		a.runningID = id
+		a.runningID, a.runningPolicy = id, 0
 	}
 	a.mu.Unlock()
 	a.log(i18n.T("已切换到节点: ") + p.Name)

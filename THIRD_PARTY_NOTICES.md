@@ -7,11 +7,11 @@ It includes or redistributes the following third-party software.
 
 | Component | Version | License | Source |
 |---|---|---|---|
-| sing-box (proxy core, `core/sing-box.exe`) | 1.14.4 (stable) | GPL-3.0-or-later, with an additional naming clause (see below) | https://github.com/SagerNet/sing-box/tree/v1.14.4 |
-| cronet-go library (`core/libcronet.dll`, used by the NaiveProxy outbound) | lib/windows_amd64 v0.0.0-20260912104006-c10c03c318db (the version sing-box 1.14.4 pins) | GPL-3.0-or-later; built from the Chromium network stack (BSD-3-Clause) | https://github.com/SagerNet/cronet-go |
+| sing-box (proxy core, `core/sing-box.exe`) | 1.14.5 (stable) | GPL-3.0-or-later, with an additional naming clause (see below) | https://github.com/SagerNet/sing-box/tree/v1.14.5 |
+| cronet-go library (`core/libcronet.dll`, used by the NaiveProxy outbound) | lib/windows_amd64 v0.0.0-20261126082848-2767273ce7ab (the version sing-box 1.14.5 pins) | GPL-3.0-or-later; built from the Chromium network stack (BSD-3-Clause) | https://github.com/SagerNet/cronet-go |
 | Noto Sans SC (UI font, embedded in `NextBox.exe`) | 5.3.1 (@fontsource-variable) | SIL Open Font License 1.1 | https://github.com/notofonts/noto-cjk |
 
-`core/sing-box.exe` is built **without modification** from the official sing-box v1.14.4 source
+`core/sing-box.exe` is built **without modification** from the official sing-box v1.14.5 source
 (`stable` branch) by `scripts/build-core.ps1`, with fewer build tags than the official release (only the features NextBox uses). Its complete corresponding source code is available
 at the link above. The sing-box license adds: *"no derivative work may use the name or imply
 association with this application without prior consent."* NextBox is an independent project and is
@@ -36,7 +36,6 @@ The full license texts are included in the release package under `licenses/`.
 | maxminddb-golang (`github.com/oschwald/maxminddb-golang`) | ISC |
 | country-flag-emoji-polyfill (font loading approach) | MIT |
 | Twemoji Country Flags font (flag emoji, embedded) | CC-BY-4.0, artwork from Twemoji (https://github.com/twitter/twemoji) |
-| Simple Icons 13.21.0 (service icons of the routing rules catalog, `frontend/src/services.ts`) | CC0-1.0 (https://github.com/simple-icons/simple-icons); the brands and logos belong to their owners and only show which service a row is about |
 | Other indirect Go modules (see `go.mod` / `go.sum`) | MIT / BSD / Apache-2.0 |
 
 ## Rule-set data

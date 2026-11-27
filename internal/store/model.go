@@ -184,14 +184,13 @@ type Settings struct {
 	ProxyRules    string `json:"proxyRules,omitempty"`
 	BlockRules    string `json:"blockRules,omitempty"`
 	RuleSetMirror string `json:"ruleSetMirror"`
-	// How the routing rules page looks: "path" (the route, steps in order;
-	// the default), "cards" (the scene cards and a rule list of v2.0) or
-	// "apps" (the service catalog, v2.2). RouteHideOff hides the steps that
-	// are switched off (scenes, ad blocking). RouteViewAsked is set once the
-	// user has been asked which look to use. Display only.
-	RouteView      string `json:"routeView,omitempty"`
-	RouteHideOff   bool   `json:"routeHideOff,omitempty"`
-	RouteViewAsked bool   `json:"routeViewAsked,omitempty"`
+	// How the routing rules page looks: "cards" (the scene cards and a rule
+	// list; new installs since 2.5) or "path" (the route, steps in order; ""
+	// too, the default before 2.5). The service catalog of 2.2–2.4 ("apps")
+	// is gone and becomes cards. RouteHideOff hides the steps that are
+	// switched off (scenes, ad blocking). Display only.
+	RouteView    string `json:"routeView,omitempty"`
+	RouteHideOff bool   `json:"routeHideOff,omitempty"`
 	// ResolveDNS is the DNS server that resolves domain names for the steps
 	// matching IP addresses (IP ranges, IP regions, "bypass mainland
 	// China"): ResolveRemote (the default, "" too) or ResolveDirect. Known foreign sites
@@ -217,6 +216,19 @@ type Settings struct {
 	// test of it: SortDefault, SortByLatency or SortNone; SortAsk ("") until
 	// the user has chosen, which the first test of a group asks once.
 	SortAfterTest string `json:"sortAfterTest"`
+	// The download speed test: the file downloaded through each node, and
+	// how long (seconds) and how much (MB) at most per node; 0 = defaults.
+	SpeedTestURL     string `json:"speedTestUrl,omitempty"`
+	SpeedTestSeconds int    `json:"speedTestSeconds,omitempty"`
+	SpeedTestMB      int    `json:"speedTestMb,omitempty"`
+
+	// NextBox for Windows only (NextBox for Android leaves them alone):
+	// Hotkeys are the system-wide key combinations, by action ("Ctrl+Alt+P");
+	// TrayItems the parts of the tray menu that are shown (nil = all);
+	// NodeView how the node page lists nodes ("list" or "grid").
+	Hotkeys   map[string]string `json:"hotkeys,omitempty"`
+	TrayItems []string          `json:"trayItems,omitempty"`
+	NodeView  string            `json:"nodeView,omitempty"`
 
 	SubUserAgent     string `json:"subUserAgent"`
 	SubUpdateByProxy bool   `json:"subUpdateByProxy"`
@@ -297,7 +309,7 @@ func DefaultSettings() Settings {
 		TestURL:          "https://www.google.com/generate_204",
 		TestTimeout:      5000,
 		TestConcurrency:  16,
-		TestMode:         TestTCP,
+		TestMode:         TestURL,
 		SubUserAgent:     "NextBox/2.4.1 (sing-box; ClashMeta compatible)",
 		SubUpdateHours:   12,
 		CountrySource:    CountryExit,
@@ -311,6 +323,9 @@ func DefaultSettings() Settings {
 // fillDefaults repairs zero values left by older or hand-edited data files.
 func (s *Settings) fillDefaults() {
 	d := DefaultSettings()
+	if s.RouteView == "apps" {
+		s.RouteView = "cards"
+	}
 	if s.Theme == "" {
 		s.Theme = d.Theme
 	}
@@ -364,8 +379,8 @@ func (s *Settings) fillDefaults() {
 	if s.TestConcurrency <= 0 {
 		s.TestConcurrency = d.TestConcurrency
 	}
-	if s.TestMode != TestURL {
-		s.TestMode = TestTCP
+	if s.TestMode != TestTCP {
+		s.TestMode = TestURL
 	}
 	switch s.SortAfterTest {
 	case SortDefault, SortByLatency, SortNone:

@@ -90,6 +90,7 @@ function pick(item: CtxItem) {
 
 <template>
   <Teleport to="body">
+    <Transition name="nb-pop" appear>
     <div ref="root" class="ctx" :style="{ left: pos.left + 'px', top: pos.top + 'px' }" role="menu" @contextmenu.prevent>
       <template v-for="(it, i) in items" :key="i">
         <div v-if="it.sep" class="sep" />
@@ -126,6 +127,7 @@ function pick(item: CtxItem) {
         </div>
       </template>
     </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -146,6 +148,13 @@ function pick(item: CtxItem) {
 .ctx.sub {
   position: absolute;
   margin: 0 4px;
+  animation: sub-in var(--t-base) var(--ease-out);
+}
+@keyframes sub-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
 }
 .title {
   padding: 6px 10px 4px;

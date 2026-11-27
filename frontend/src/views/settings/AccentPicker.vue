@@ -168,7 +168,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
       </button>
     </div>
 
-    <Transition name="drop">
+    <Transition name="nb-pop">
       <div v-if="open" class="panel">
         <div class="pad">
           <div
@@ -383,14 +383,5 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
 .done {
   margin-top: auto;
   justify-content: center;
-}
-.drop-enter-active,
-.drop-leave-active {
-  transition: opacity 0.18s, transform 0.18s;
-}
-.drop-enter-from,
-.drop-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
 }
 </style>

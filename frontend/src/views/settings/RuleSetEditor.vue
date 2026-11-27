@@ -4,6 +4,7 @@
 // rule-sets at an address — and sends all of it to one target. Each kind is
 // one row; a row takes several values. "批量添加" reads pasted lines
 // ("kind:value", or bare domains, IPs, .exe names and addresses).
+import Reveal from '../../motion/Reveal.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { t } from '../../i18n'
 import Modal from '../../components/Modal.vue'
@@ -166,7 +167,8 @@ function showCheck(u: string) {
       <Menu v-if="addItems.length" class="add-menu" :items="addItems" icon="plus" :label="t('添加')" />
     </div>
 
-    <div v-if="bulkOpen" class="bulk">
+    <Reveal :open="bulkOpen">
+    <div class="bulk">
       <textarea v-model="bulk" class="textarea mono" spellcheck="false" :placeholder="bulkExample" />
       <div v-for="e in bulkErrors" :key="e" class="err"><Icon name="warn" :size="12" /> {{ e }}</div>
       <div class="bulk-foot">
@@ -174,6 +176,7 @@ function showCheck(u: string) {
         <button class="btn small primary" :disabled="!bulk.trim()" @click="applyBulk">{{ t('加入') }}</button>
       </div>
     </div>
+    </Reveal>
 
     <div class="rows">
       <div v-for="(row, i) in draft.rows" :key="row.kind" class="row" :class="{ tall: row.kind === 'url' }">

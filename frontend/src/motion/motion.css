@@ -1,0 +1,142 @@
+/* NextBox motion: one set of durations and curves, and the named transitions
+   every component uses. A <Transition name="nb-…"> or the wrappers in this
+   folder (Pop, Reveal, ListMotion) pick them up; nothing else defines its
+   own timing. Windows' "Animation effects" switch (prefers-reduced-motion)
+   turns all of it off. */
+
+:root {
+  --t-fast: 120ms;
+  --t-base: 200ms;
+  --t-slow: 300ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.3, 1);
+  --ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+/* fade: overlays, hints, things that appear in place */
+.nb-fade-enter-active,
+.nb-fade-leave-active {
+  transition: opacity var(--t-base) ease;
+}
+.nb-fade-enter-from,
+.nb-fade-leave-to {
+  opacity: 0;
+}
+
+/* pop: menus, dropdowns, popovers, the help tip (scale from their origin) */
+.nb-pop-enter-active {
+  transition: opacity var(--t-fast) ease, transform var(--t-base) var(--ease-spring);
+}
+.nb-pop-leave-active {
+  transition: opacity var(--t-fast) ease, transform var(--t-fast) ease;
+}
+.nb-pop-enter-from,
+.nb-pop-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.97);
+}
+
+/* slide: steps inside a dialog, settings sections */
+.nb-slide-enter-active,
+.nb-slide-leave-active {
+  transition: opacity var(--t-base) ease, transform var(--t-slow) var(--ease-out);
+}
+.nb-slide-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.nb-slide-leave-to {
+  opacity: 0;
+}
+
+/* list: rows that are added, removed or moved (ListMotion) */
+.nb-list-enter-active {
+  transition: opacity var(--t-base) ease, transform var(--t-slow) var(--ease-out);
+}
+.nb-list-leave-active {
+  transition: opacity var(--t-fast) ease, transform var(--t-fast) ease;
+  pointer-events: none;
+}
+.nb-list-enter-from {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.nb-list-leave-to {
+  opacity: 0;
+  transform: scale(0.98);
+}
+.nb-list-move {
+  transition: transform var(--t-slow) var(--ease-out);
+}
+
+/* rows: like list, without the move, for lists that are sorted by dragging
+   (drag.ts moves the rows itself) */
+.nb-rows-enter-active {
+  transition: opacity var(--t-base) ease, transform var(--t-slow) var(--ease-out);
+}
+.nb-rows-leave-active {
+  transition: opacity var(--t-fast) ease;
+  pointer-events: none;
+}
+.nb-rows-enter-from {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.nb-rows-leave-to {
+  opacity: 0;
+}
+
+/* notice: the bottom-right messages (Notices.vue) */
+.nb-notice-enter-active {
+  transition: opacity var(--t-base) ease, transform var(--t-slow) var(--ease-spring);
+}
+.nb-notice-leave-active {
+  transition: opacity var(--t-fast) ease, transform var(--t-base) ease;
+}
+.nb-notice-enter-from,
+.nb-notice-leave-to {
+  opacity: 0;
+  transform: translateX(28px) scale(0.98);
+}
+.nb-notice-move {
+  transition: transform var(--t-slow) var(--ease-out);
+}
+
+/* reveal: a block that opens and closes (Reveal.vue); the grid row grows
+   from 0fr to 1fr, so the content's height needs no measuring */
+.nb-reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--t-slow) var(--ease-out), opacity var(--t-base) ease;
+}
+.nb-reveal > .nb-reveal-in {
+  min-height: 0;
+  overflow: hidden;
+}
+.nb-reveal-enter-from,
+.nb-reveal-leave-to {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+/* flash: a short highlight that fades away (useFlash) */
+@keyframes nb-flash {
+  0%,
+  80% {
+    background: var(--accent-soft-2);
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+}

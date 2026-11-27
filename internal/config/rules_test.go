@@ -37,7 +37,7 @@ func TestRulesAndPolicies(t *testing.T) {
 		Settings: s, Node: &nodes[0], Nodes: nodes[1:3], Member: nil,
 		ClashAPI: "127.0.0.1:9090", Secret: "x", RuleSetDir: ruleDir, SkipMissingRuleSets: true,
 		Policies: []PolicyInput{
-			{Policy: store.Policy{ID: 100, Name: "日本 自动", Mode: store.PolicyAuto}, Members: []store.Profile{nodes[1], nodes[4]}},
+			{Policy: store.Policy{ID: 100, Name: "日本 自动", Mode: store.PolicyAuto, Interval: 60}, Members: []store.Profile{nodes[1], nodes[4]}},
 			{Policy: store.Policy{ID: 101, Name: "reality", Mode: store.PolicySelect, Selected: nodes[5].ID}, Members: []store.Profile{nodes[5], nodes[6]}},
 		},
 	}
@@ -52,7 +52,7 @@ func TestRulesAndPolicies(t *testing.T) {
 
 	b, _ := json.Marshal(cfg)
 	js := string(b)
-	for _, want := range []string{`"type":"urltest"`, `"tag":"reality #101"`, `"store_fakeip":true`, `"msftconnecttest.com"`} {
+	for _, want := range []string{`"type":"urltest"`, `"interval":"60m"`, `"idle_timeout":"60m"`, `"tag":"reality #101"`, `"store_fakeip":true`, `"msftconnecttest.com"`} {
 		if !strings.Contains(js, want) {
 			t.Errorf("config lacks %s", want)
 		}
@@ -86,6 +86,25 @@ func TestRulesAndPolicies(t *testing.T) {
 			t.Errorf("select group default = %v", m["default"])
 		}
 	}
+
+	// the connection itself can use a policy group: "proxy" offers both
+	// groups after the nodes and points at the chosen one
+	in.Main = 100
+	if cfg, err = Build(in); err != nil {
+		t.Fatal(err)
+	}
+	check(t, bin, cfg)
+	for _, ob := range cfg["outbounds"].([]any) {
+		m := ob.(map[string]any)
+		if m["tag"] != TagProxy {
+			continue
+		}
+		list := m["outbounds"].([]string)
+		if m["default"] != "日本 自动" || len(list) < 2 || list[len(list)-2] != "日本 自动" || list[len(list)-1] != "reality #101" {
+			t.Errorf("proxy selector with a main policy = %v", m)
+		}
+	}
+	in.Main = 0
 
 	// global mode ignores the rules but keeps ad blocking
 	s.RouteMode = "global"

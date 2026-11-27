@@ -2,6 +2,7 @@
 // 这是 Clash 订阅，要一起导入哪些？ The nodes always come; proxy groups,
 // rules and DNS settings are converted into NextBox's own settings and
 // replaced on every update of the subscription.
+import Reveal from '../motion/Reveal.vue'
 import { computed, ref } from 'vue'
 import { t } from '../i18n'
 import Modal from './Modal.vue'
@@ -74,9 +75,11 @@ const groupNames = computed(() => {
         <Icon name="chevron" :size="12" :class="{ open: showSkipped }" />
         {{ t('{0} 条规则无法转换，导入时会跳过', (p?.ruleTotal ?? 0) - (p?.rules ?? 0)) }}
       </button>
-      <ul v-if="showSkipped" class="mono">
-        <li v-for="s in skipped" :key="s">{{ s }}</li>
-      </ul>
+      <Reveal :open="showSkipped">
+        <ul class="mono">
+          <li v-for="s in skipped" :key="s">{{ s }}</li>
+        </ul>
+      </Reveal>
     </div>
     <template #footer>
       <button class="btn" @click="applyClash({ groups: false, rules: false, dns: false, subDns: false })">{{ t('只导入节点') }}</button>

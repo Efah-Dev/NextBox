@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"nextbox/internal/clash"
 	"nextbox/internal/i18n"
 	"os"
@@ -34,28 +35,33 @@ type App struct {
 	ruleSetMu sync.Mutex // serialises writes to the rule-set directory
 	geoMu     sync.Mutex // one server-country lookup at a time
 
-	mu           sync.Mutex // guards the fields below
-	proc         *core.Process
-	runningID    int64
-	loaded       map[int64]loadedNode // nodes in the running core, by profile id
-	nodeTags     map[int64]string     // outbound tags of every node in the running core
-	policyTags   map[int64]string     // outbound tags of the policy groups in the running core
-	routeRules   []store.Rule         // Settings.Rules the running core was started with (see GetConnections)
-	startedAt    time.Time
-	sysProxyAddr string
-	stopTraffic  context.CancelFunc
-	testCancel   context.CancelFunc
-	tunActive    bool
-	exit         ExitInfo // see exit.go
-	exitMu       sync.Mutex
-	asnCache     map[string]cachedASN    // see exit.go
-	clashExtras  map[int64]*clash.Extras // the last Clash parts of each subscription, see clash.go
-	autoStarted  bool                    // started by Windows (--minimized)
-	autoStartAt  int64                   // when, as recorded in autostart.json
-	autoLogMu    sync.Mutex
-	fileLog      atomic.Pointer[logfile.Writer] // nil while file logging is off
-	quitting     bool                           // set by Quit so the close handler lets the window go
-	serviceOK    atomic.Bool                    // the service was usable when last asked (GetServiceInfo)
+	mu            sync.Mutex // guards the fields below
+	proc          *core.Process
+	runningID     int64
+	loaded        map[int64]loadedNode // nodes in the running core, by profile id
+	nodeTags      map[int64]string     // outbound tags of every node in the running core
+	policyTags    map[int64]string     // outbound tags of the policy groups in the running core
+	routeRules    []store.Rule         // Settings.Rules the running core was started with (see GetConnections)
+	startedAt     time.Time
+	sysProxyAddr  string
+	stopTraffic   context.CancelFunc
+	testCancel    context.CancelFunc
+	tunActive     bool
+	exit          ExitInfo // see exit.go
+	exitMu        sync.Mutex
+	asnCache      map[string]cachedASN    // see exit.go
+	clashExtras   map[int64]*clash.Extras // the last Clash parts of each subscription, see clash.go
+	autoStarted   bool                    // started by Windows (--minimized)
+	autoStartAt   int64                   // when, as recorded in autostart.json
+	autoLogMu     sync.Mutex
+	fileLog       atomic.Pointer[logfile.Writer] // nil while file logging is off
+	quitting      bool                           // set by Quit so the close handler lets the window go
+	serviceOK     atomic.Bool                    // the service was usable when last asked (GetServiceInfo)
+	pendingSub    *pendingSubscription           // see AddSubscriptionAuto
+	hotkeys       *sys.Hotkeys                   // see hotkeys.go
+	runningPolicy int64                          // the policy group the connection uses (policyuse.go)
+	ui            fs.FS                          // the built UI (the tray menu takes its fonts)
+	speeds        map[int64]core.SpeedResult     // download speed results (nodes.go TestSpeed)
 
 	tray trayState
 }
@@ -98,6 +104,7 @@ func (a *App) startup(ctx context.Context) {
 	// also prunes files older than the retention period
 	a.applyLogFile(store.Settings{}, s)
 	a.startTray()
+	a.startHotkeys()
 	a.logs.onFlush = func(b LogBatch) { wruntime.EventsEmit(a.ctx, "logs", b) }
 
 	// A crash may have left the system proxy pointing at us.
@@ -232,10 +239,13 @@ func (a *App) log(line string) {
 // ---------------------------------------------------------------- state
 
 type StateInfo struct {
-	Version        string `json:"version"`
-	Running        bool   `json:"running"`
-	RunningID      int64  `json:"runningId"`
-	SelectedID     int64  `json:"selectedId"`
+	Version    string `json:"version"`
+	Running    bool   `json:"running"`
+	RunningID  int64  `json:"runningId"`
+	SelectedID int64  `json:"selectedId"`
+	// SelectedPolicy is the policy group the connection uses instead of the
+	// node SelectedID (0 = the node); RunningID is then its member in use.
+	SelectedPolicy int64  `json:"selectedPolicy"`
 	CurrentGroupID int64  `json:"currentGroupId"`
 	StartedAt      int64  `json:"startedAt"`
 	Testing        bool   `json:"testing"`
@@ -268,6 +278,7 @@ func (a *App) GetState() StateInfo {
 	_, err := os.Stat(a.corePath())
 	info.Version = Version
 	info.SelectedID = a.store.SelectedID()
+	info.SelectedPolicy = a.store.SelectedPolicy()
 	info.CurrentGroupID = a.store.CurrentGroupID()
 	info.Elevated = sys.IsElevated()
 	info.ServiceReady = a.serviceOK.Load()
@@ -306,6 +317,9 @@ func (a *App) SaveSettings(s store.Settings) error {
 	}
 	i18n.SetLang(s.Language)
 	a.applyLogFile(old, s)
+	if !sameJSON(old.Hotkeys, s.Hotkeys) {
+		a.applyHotkeys(s)
+	}
 	if old.CountrySource != s.CountrySource {
 		go a.locateServers(nil, false)
 	}
@@ -336,6 +350,8 @@ func coreSettings(s store.Settings) store.Settings {
 	s.CountrySource, s.CountryNoticeShown, s.RuleTipShown = "", false, false
 	s.ConnectOnStart, s.AutoStart, s.CloseToTray, s.SystemProxy = false, false, false, false
 	s.LogToFile, s.LogFileMaxMB, s.LogKeepDays, s.LogViewLimit = false, 0, 0, 0
+	s.SpeedTestURL, s.SpeedTestSeconds, s.SpeedTestMB = "", 0, 0
+	s.Hotkeys, s.TrayItems, s.NodeView = nil, nil, ""
 	return s
 }
 

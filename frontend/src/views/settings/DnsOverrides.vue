@@ -6,6 +6,7 @@ import { computed, ref } from 'vue'
 import { t } from '../../i18n'
 import type { DnsOverride } from '../../api'
 import Icon from '../../components/Icon.vue'
+import HelpTip from '../../components/HelpTip.vue'
 import Modal from '../../components/Modal.vue'
 import Segmented from '../../components/Segmented.vue'
 import Switch from '../../components/Switch.vue'
@@ -88,8 +89,8 @@ function remove(i: number) {
 <template>
   <div class="form-row top">
     <div class="label">
-      {{ t('DNS 复写') }}
-      <span class="hint">{{ t('指定的域名改用别的 DNS 服务器解析，或者直接指定 IP，优先于上面的远程 / 直连 DNS') }}</span>
+      <span>{{ t('DNS 复写') }}<HelpTip :text="t('指定的域名改用这里填写的 DNS 服务器解析，或直接返回填写的 IP。优先于远程 DNS 和直连 DNS。')" /></span>
+      <span class="hint">{{ t('按域名指定 DNS 服务器或 IP') }}</span>
     </div>
     <div class="control">
       <button class="btn" @click="edit(-1)"><Icon name="plus" :size="14" /> {{ t('添加') }}</button>

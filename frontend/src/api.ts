@@ -45,8 +45,6 @@ export interface Settings {
   routeView?: RouteView
   /** hide the steps that are switched off (scenes, ad blocking) */
   routeHideOff?: boolean
-  /** the user has been asked which look to use */
-  routeViewAsked?: boolean
   /** DNS that resolves names for the IP steps ("bypass mainland China"): remote (default) | direct */
   bypassDns?: string
   remoteDns: string
@@ -59,6 +57,16 @@ export interface Settings {
   testConcurrency: number
   testMode: TestMode // UDP protocols and chain proxies are always tested by URL
   sortAfterTest: '' | 'default' | 'latency' | 'none' // after a speed test of a group: not chosen yet (asked once), the subscription's order, by latency, as it is
+  /** download speed test: the file, and seconds / MB at most per node (0 = defaults) */
+  speedTestUrl?: string
+  speedTestSeconds?: number
+  speedTestMb?: number
+  /** system-wide hotkeys by action ("Ctrl+Alt+P") */
+  hotkeys?: Record<string, string>
+  /** the parts of the tray menu that are shown (none = all) */
+  trayItems?: string[]
+  /** how the node page lists nodes */
+  nodeView?: 'list' | 'grid'
   subUserAgent: string
   subUpdateByProxy: boolean
   subAutoUpdate: boolean
@@ -90,7 +98,7 @@ export type StepKind = 'ads' | 'scene'
 export type Target = string
 
 /** Looks of the routing rules page: the service catalog, the cards of v2.0, the route. */
-export type RouteView = 'path' | 'cards' | 'apps'
+export type RouteView = 'path' | 'cards'
 
 export interface Rule {
   kind: RuleKind | StepKind | 'set'
@@ -125,6 +133,8 @@ export interface Policy {
   groupId?: number
   mode: 'auto' | 'select'
   selected?: number
+  /** minutes between the tests of an auto group (0 = 10) */
+  interval?: number
 }
 
 export interface PolicyMember {
@@ -316,6 +326,8 @@ export interface AppState {
   running: boolean
   runningId: number
   selectedId: number
+  /** the policy group the connection uses instead of the node (0 = the node) */
+  selectedPolicy: number
   currentGroupId: number
   startedAt: number
   testing: boolean
@@ -428,6 +440,39 @@ export interface LatencyResult {
   kind?: TestMode
 }
 
+/** A download speed test result (core.SpeedResult). */
+export interface SpeedResult {
+  id: number
+  speed: number // bytes per second
+  bytes: number
+  error?: string
+}
+
+/** What pasted or dropped text holds (link.Classify). */
+export interface Classified {
+  kind: 'subscription' | 'nodes' | 'none'
+  url?: string
+  name?: string
+  named?: boolean
+  count?: number
+  likelyProxy?: boolean
+}
+
+export interface SubscriptionAdd {
+  message?: string
+  needName?: boolean
+  suggest?: string
+}
+
+/** What a dropped file is (InspectFile). */
+export interface DroppedFile {
+  kind: 'backup' | 'config' | 'subscription' | 'nodes' | 'none'
+  path: string
+  name: string
+  link: Classified
+  count?: number
+}
+
 const w = window as any
 
 function call<T>(name: string, ...args: unknown[]): Promise<T> {
@@ -459,6 +504,12 @@ export const api = {
   getProfiles: (groupId: number) => call<Profile[]>('GetProfiles', groupId),
   getProfile: (id: number) => call<Profile>('GetProfile', id),
   importText: (text: string, groupId: number) => call<string>('ImportText', text, groupId),
+  classifyText: (text: string) => call<Classified>('ClassifyText', text),
+  addSubscriptionAuto: (url: string, name: string) => call<SubscriptionAdd>('AddSubscriptionAuto', url, name),
+  inspectFile: (path: string) => call<DroppedFile>('InspectFile', path),
+  importConfigFile: (path: string) => call<string>('ImportConfigFile', path),
+  importLinksFile: (path: string, groupId: number) => call<string>('ImportLinksFile', path, groupId),
+  testHotkey: (combo: string) => call<void>('TestHotkey', combo),
   saveProfile: (p: Profile) => call<Profile>('SaveProfile', p),
   deleteProfiles: (ids: number[]) => call<void>('DeleteProfiles', ids),
   deleteUnavailable: (groupId: number) => call<number>('DeleteUnavailable', groupId),
@@ -475,6 +526,9 @@ export const api = {
   /** sortBy: how the groups are sorted afterwards ('' keeps them as they are) */
   testLatency: (ids: number[], mode: TestMode, sortBy = '') => call<void>('TestLatency', ids, mode, sortBy),
   stopTest: () => call<void>('StopTest'),
+  testSpeed: (ids: number[]) => call<void>('TestSpeed', ids),
+  getSpeeds: () => call<SpeedResult[]>('GetSpeeds'),
+  usePolicy: (id: number) => call<void>('UsePolicy', id),
 
   getConnections: () => call<Connections>('GetConnections'),
   closeConnection: (id: string) => call<void>('CloseConnection', id),
@@ -529,4 +583,6 @@ export const rt = {
   toggleMaximise: () => w.runtime?.WindowToggleMaximise(),
   clipboardGet: (): Promise<string> => w.runtime?.ClipboardGetText() ?? Promise.resolve(''),
   clipboardSet: (text: string): Promise<boolean> => w.runtime?.ClipboardSetText(text) ?? Promise.resolve(false),
+  /** files dropped on the window (Wails' file drop) */
+  onFileDrop: (cb: (paths: string[]) => void) => w.runtime?.OnFileDrop?.((_x: number, _y: number, paths: string[]) => cb(paths), false),
 }

@@ -68,12 +68,6 @@ func SetLang(l string) {
 	mu.Unlock()
 }
 
-func Lang() string {
-	mu.RLock()
-	defer mu.RUnlock()
-	return lang
-}
-
 // T translates a Simplified Chinese source string into the current language.
 func T(s string) string {
 	mu.RLock()

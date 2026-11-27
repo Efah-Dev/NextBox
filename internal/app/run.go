@@ -18,6 +18,7 @@ import (
 func Run(assets fs.FS, startMinimised bool) error {
 	app := NewApp()
 	app.autoStarted = startMinimised
+	app.ui, _ = fs.Sub(assets, "frontend/dist")
 	return wails.Run(&options.App{
 		Title:            "NextBox",
 		Width:            1080,
@@ -38,6 +39,8 @@ func Run(assets fs.FS, startMinimised bool) error {
 			OnSecondInstanceLaunch: app.onSecondInstance,
 		},
 		Bind: []interface{}{app},
+		// files dragged into the window are imported (frontend DropZone.vue)
+		DragAndDrop: &options.DragAndDrop{EnableFileDrop: true},
 		Windows: &windows.Options{
 			Theme: windows.SystemDefault,
 		},

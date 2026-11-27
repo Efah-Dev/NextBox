@@ -20,6 +20,10 @@ type data struct {
 	SelectedID     int64      `json:"selectedId"`
 	CurrentGroupID int64      `json:"currentGroupId"`
 	Policies       []*Policy  `json:"policies,omitempty"`
+	// SelectedPolicy is the policy group used for the connection instead of
+	// the node SelectedID (0 = the node). SelectedID stays as it was, for
+	// when the user picks a node again.
+	SelectedPolicy int64 `json:"selectedPolicy,omitempty"`
 }
 
 // Store keeps all user data in memory and persists it as JSON files in Dir.
@@ -49,6 +53,7 @@ func Open(dir string) (*Store, error) {
 	s.settings.ThemeScale = 0 // a settings file without it predates the v2.1 level scales
 	if err := readJSON(filepath.Join(dir, "settings.json"), &s.settings); errors.Is(err, os.ErrNotExist) {
 		s.settings.ThemeScale = ThemeScale
+		s.settings.RouteView = "cards" // a new install; older ones keep what they showed
 	} else if err != nil {
 		return nil, err
 	}
@@ -601,6 +606,29 @@ func (s *Store) SetSelected(id int64) error {
 		return errors.New(i18n.T("节点不存在"))
 	}
 	s.data.SelectedID = id
+	s.data.SelectedPolicy = 0 // picking a node stops using a policy group
+	return s.saveDataLocked()
+}
+
+// SelectedPolicy is the policy group the connection uses, 0 when it uses the
+// node SelectedID (also when the group has been deleted since).
+func (s *Store) SelectedPolicy() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.policyLocked(s.data.SelectedPolicy) == nil {
+		return 0
+	}
+	return s.data.SelectedPolicy
+}
+
+// SetSelectedPolicy makes the connection use a policy group (0: the node).
+func (s *Store) SetSelectedPolicy(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id != 0 && s.policyLocked(id) == nil {
+		return errors.New(i18n.T("分组代理不存在"))
+	}
+	s.data.SelectedPolicy = id
 	return s.saveDataLocked()
 }
 
@@ -659,6 +687,9 @@ func (s *Store) DeletePolicy(id int64) error {
 		}
 	}
 	s.data.Policies = kept
+	if s.data.SelectedPolicy == id {
+		s.data.SelectedPolicy = 0
+	}
 	return s.saveDataLocked()
 }
 

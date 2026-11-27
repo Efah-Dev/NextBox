@@ -28,7 +28,7 @@ const darkLabel = computed(() =>
   <div class="levels">
     <div class="level">
       <div class="level-head">
-        <span>{{ t('浅色亮度') }}<span class="hint">{{ t('夜里嫌太亮可以调低') }}</span></span>
+        <span>{{ t('浅色亮度') }}<span class="hint">{{ t('调低可减弱白色背景亮度') }}</span></span>
         <button v-if="light !== LIGHT_DEFAULT" class="btn ghost small" @click="light = LIGHT_DEFAULT">{{ t('恢复默认') }}</button>
       </div>
       <div class="slider">
@@ -40,7 +40,7 @@ const darkLabel = computed(() =>
     </div>
     <div class="level">
       <div class="level-head">
-        <span>{{ t('深色深度') }}<span class="hint">{{ t('往右越接近纯黑，适合 OLED 屏幕') }}</span></span>
+        <span>{{ t('深色深度') }}<span class="hint">{{ t('越往右越接近纯黑') }}</span></span>
         <button v-if="dark !== DARK_DEFAULT" class="btn ghost small" @click="dark = DARK_DEFAULT">{{ t('恢复默认') }}</button>
       </div>
       <div class="slider">

@@ -10,13 +10,27 @@ import Icon from '../../components/Icon.vue'
 import { api, type Policy, type Profile } from '../../api'
 import { bareName, countryName, nodeCountry } from '../../country'
 import { settings, state } from '../../state'
-import { groupName, latencyClass, latencyText, toast } from '../../util'
+import { groupName, latencyClass, latencyText, serverOf, toast, typeName } from '../../util'
+import HelpTip from '../../components/HelpTip.vue'
+import Reveal from '../../motion/Reveal.vue'
 import { refreshPolicies } from '../../policies'
 
 const open = defineModel<boolean>({ required: true })
 const props = defineProps<{ policy: Policy | null }>()
 
-const blank = (): Policy => ({ id: 0, name: '', match: 'country', country: '', keyword: '', members: [], groupId: 0, mode: 'auto' })
+const blank = (): Policy => ({ id: 0, name: '', match: 'manual', country: '', keyword: '', members: [], groupId: 0, mode: 'auto', interval: 0 })
+
+// how often an auto group tests its members (minutes; 0 = 10)
+const intervals = [1, 3, 5, 10, 15, 30, 60]
+const custom = ref(false)
+const interval = computed({
+  get: () => form.value.interval || 10,
+  set: (v: number) => (form.value.interval = Math.max(1, Math.min(1440, Math.round(v) || 10))),
+})
+function pickInterval(v: string) {
+  custom.value = v === 'custom'
+  if (!custom.value) interval.value = Number(v)
+}
 const form = ref<Policy>(blank())
 const all = ref<Profile[]>([])
 const search = ref('')
@@ -26,6 +40,7 @@ watch(open, async (o) => {
   if (!o) return
   form.value = props.policy ? { ...blank(), ...props.policy, members: [...(props.policy.members ?? [])] } : blank()
   search.value = ''
+  custom.value = !intervals.includes(form.value.interval || 10)
   all.value = await api.getProfiles(0).catch(() => [])
   if (!form.value.country && countries.value.length) form.value.country = countries.value[0].code
 })
@@ -102,21 +117,21 @@ async function save() {
 </script>
 
 <template>
-  <Modal v-model="open" :title="policy ? t('编辑分组代理') : t('新建分组代理')" :width="560">
+  <Modal v-model="open" :title="policy ? t('编辑分组代理') : t('新建分组代理')" :width="640">
     <div class="form-row">
       <div class="label">{{ t('名称') }}</div>
       <div class="control"><input v-model="form.name" class="input" :placeholder="t('例如：日本 自动')" /></div>
     </div>
     <div class="form-row">
-      <div class="label">{{ t('选择节点') }}</div>
+      <div class="label">{{ t('节点来源') }}</div>
       <div class="control">
         <Segmented
           v-model="form.match"
           style="width: 300px"
           :options="[
+            { value: 'manual', label: t('手动挑选') },
             { value: 'country', label: t('按地区') },
             { value: 'keyword', label: t('按关键词') },
-            { value: 'manual', label: t('手动挑选') },
           ]"
         />
       </div>
@@ -140,11 +155,13 @@ async function save() {
       </div>
     </div>
     <div v-else-if="form.match === 'keyword'" class="form-row">
-      <div class="label">{{ t('关键词') }}<span class="hint">{{ t('名称包含任意一个即可，空格分隔') }}</span></div>
+      <div class="label">{{ t('关键词') }}<span class="hint">{{ t('空格分隔，包含任意一个即匹配') }}</span></div>
       <div class="control"><input v-model="form.keyword" class="input" :placeholder="t('例如：IPLC 洛杉矶')" /></div>
     </div>
     <div class="form-row">
-      <div class="label">{{ t('选用方式') }}</div>
+      <div class="label">
+        <span>{{ t('选用方式') }}<HelpTip :text="form.mode === 'auto' ? t('连接期间按设定的间隔测试组内所有节点的延迟，使用最快的一个；延迟相差 50 ms 以内不切换，当前节点不可用时立即换用其他节点。') : t('始终使用你选定的节点，可以在分组代理卡片、节点页或托盘菜单里随时切换。')" /></span>
+      </div>
       <div class="control">
         <Segmented
           v-model="form.mode"
@@ -156,9 +173,23 @@ async function save() {
         />
       </div>
     </div>
-    <p class="faint mode-hint">
-      {{ form.mode === 'auto' ? t('每 10 分钟测一次延迟，自动用最快的节点；当前节点不可用时会换到别的。') : t('使用你选定的节点，可以在分组卡片或托盘里随时切换。') }}
-    </p>
+    <Reveal :open="form.mode === 'auto'">
+      <div class="form-row">
+        <div class="label">
+          <span>{{ t('测试间隔') }}<HelpTip :text="t('间隔越短，切换到更快节点越及时，也越费流量。设置范围 1–1440 分钟。')" /></span>
+        </div>
+        <div class="control">
+          <select class="select" style="width: 140px" :value="custom ? 'custom' : String(interval)" @change="pickInterval(($event.target as HTMLSelectElement).value)">
+            <option v-for="m in intervals" :key="m" :value="String(m)">{{ t('{0} 分钟', m) }}</option>
+            <option value="custom">{{ t('自定义') }}</option>
+          </select>
+          <template v-if="custom">
+            <input v-model.lazy.number="interval" type="number" min="1" max="1440" class="input mono" style="width: 90px" />
+            <span class="faint">{{ t('分钟') }}</span>
+          </template>
+        </div>
+      </div>
+    </Reveal>
 
     <div class="members">
       <div class="members-head">
@@ -169,10 +200,12 @@ async function save() {
       </div>
       <div class="member-list scroll">
         <template v-if="form.match === 'manual'">
-          <label v-for="p in pickable" :key="p.id" class="member pick">
+          <label v-for="p in pickable" :key="p.id" class="member pick" :class="{ on: isMember(p.id) }">
             <input type="checkbox" :checked="isMember(p.id)" @change="toggleMember(p.id)" />
             <Flag :code="codeOf(p)" :size="14" />
             <span class="ellipsis">{{ bareName(p.name) }}</span>
+            <span class="badge">{{ p.type === 'chain' ? t('链式') : typeName(p.type) }}</span>
+            <span class="server mono ellipsis" :title="serverOf(p.outbound)">{{ serverOf(p.outbound) }}</span>
             <span class="lat" :class="latencyClass(p.latency)">{{ latencyText(p.latency) }}</span>
           </label>
         </template>
@@ -180,6 +213,8 @@ async function save() {
           <div v-for="p in matched.slice(0, 100)" :key="p.id" class="member">
             <Flag :code="codeOf(p)" :size="14" />
             <span class="ellipsis">{{ bareName(p.name) }}</span>
+            <span class="badge">{{ p.type === 'chain' ? t('链式') : typeName(p.type) }}</span>
+            <span class="server mono ellipsis" :title="serverOf(p.outbound)">{{ serverOf(p.outbound) }}</span>
             <span class="lat" :class="latencyClass(p.latency)">{{ latencyText(p.latency) }}</span>
           </div>
           <div v-if="!matched.length" class="faint none"><Icon name="info" :size="14" /> {{ t('没有符合条件的节点') }}</div>
@@ -196,11 +231,6 @@ async function save() {
 </template>
 
 <style scoped>
-.mode-hint {
-  margin: 0 0 8px;
-  font-size: 12px;
-  line-height: 1.6;
-}
 .members {
   margin-top: 6px;
 }
@@ -216,22 +246,41 @@ async function save() {
   font-size: 12px;
 }
 .member-list {
-  max-height: 210px;
+  max-height: 260px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 4px;
 }
+/* flag | name | protocol | server | latency */
 .member {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) 84px minmax(0, 0.9fr) 64px;
   align-items: center;
   gap: 8px;
   padding: 5px 8px;
   border-radius: var(--radius-sm);
 }
 .member.pick {
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) 84px minmax(0, 0.9fr) 64px;
   cursor: pointer;
+}
+.member.pick.on {
+  background: var(--accent-soft);
+}
+.member .badge {
+  justify-self: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.member .server {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.member .lat {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11.5px;
 }
 .member:hover {
   background: var(--hover);

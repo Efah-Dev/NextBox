@@ -9,3 +9,7 @@ icon is checked with `NIM_MODIFY` and adding is retried for about a minute
 instead of giving up, which left a blank tray icon that did nothing.
 
 The `example` folder and the tests were left out.
+
+Added: `ShowMenu()` in `systray_windows.go`, so that NextBox, which shows a menu
+of its own on a right click (`SetOnSecondaryTapped`), can still open this one
+when its own cannot be shown.

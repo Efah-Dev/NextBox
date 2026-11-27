@@ -1166,3 +1166,9 @@ func systrayRightClick() {
 
 	wt.showMenu()
 }
+
+// ShowMenu opens the menu, as a right click without SetOnSecondaryTapped
+// does (added for NextBox: its own tray menu falls back to this one).
+func ShowMenu() {
+	wt.showMenu()
+}

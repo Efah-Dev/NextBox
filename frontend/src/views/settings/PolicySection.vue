@@ -13,7 +13,7 @@ import { policies, refreshPolicies } from '../../policies'
 import { state } from '../../state'
 import { confirmDialog, groupName, latencyClass, latencyText, run } from '../../util'
 
-const props = defineProps<{ form: Settings; index: number }>()
+const props = defineProps<{ form: Settings }>()
 
 const editorOpen = ref(false)
 const editing = ref<Policy | null>(null)
@@ -57,7 +57,7 @@ const usedHint = computed(() => props.form.routeMode !== 'rule')
 </script>
 
 <template>
-  <Card id="sec-policy" :title="t('分组代理')" :index="index">
+  <Card id="sec-policy" :title="t('分组代理')">
     <template #actions>
       <button class="btn small" @click="edit(null)"><Icon name="plus" :size="13" /> {{ t('新建分组') }}</button>
     </template>

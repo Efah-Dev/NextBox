@@ -44,6 +44,10 @@ type Input struct {
 	// member nodes (see UsedPolicies). Rules naming a policy group that is
 	// missing here, or has no usable member, use the selected node instead.
 	Policies []PolicyInput
+	// Main is a policy group of Policies that the connection uses instead
+	// of Node ("proxy" points at it); 0, or a group missing from Policies,
+	// means Node. Node must still be given: it is the fallback.
+	Main int64
 	// GroupDNS are the DNS servers of subscriptions that have their own
 	// (store.Store.GroupDNS), by group ID.
 	GroupDNS map[int64]store.GroupDNS
@@ -156,12 +160,15 @@ func Build(in Input) (map[string]any, error) {
 				names = append(names, tags[n.ID])
 			}
 		}
-		outbounds = append(outbounds, map[string]any{
+		selector := map[string]any{
 			"type":      "selector",
 			"tag":       TagProxy,
 			"outbounds": names,
 			"default":   tags[in.Node.ID],
-		})
+		}
+		outbounds = append(outbounds, selector)
+		// the policy groups become choices of "proxy" too (after this loop),
+		// so the connection can use one without a restart
 		for _, pi := range in.Policies {
 			var members []string
 			def := ""
@@ -184,12 +191,24 @@ func Build(in Input) (map[string]any, error) {
 				}
 				outbounds = append(outbounds, map[string]any{"type": "selector", "tag": tag, "outbounds": members, "default": def})
 			} else {
+				every := pi.Policy.TestInterval()
 				outbounds = append(outbounds, map[string]any{
 					"type": "urltest", "tag": tag, "outbounds": members,
-					"url": s.TestURL, "interval": "10m", "tolerance": 50, "idle_timeout": "30m",
+					"url": s.TestURL, "interval": fmt.Sprintf("%dm", every), "tolerance": 50,
+					// sing-box refuses an interval longer than idle_timeout
+					"idle_timeout": fmt.Sprintf("%dm", max(every, 30)),
 				})
 			}
 		}
+		for _, pi := range in.Policies {
+			if tag, ok := policyTags[pi.Policy.ID]; ok {
+				names = append(names, tag)
+				if pi.Policy.ID == in.Main {
+					selector["default"] = tag
+				}
+			}
+		}
+		selector["outbounds"] = names
 		outbounds = append(outbounds, nodeOutbounds...)
 	}
 	outbounds = append(outbounds, map[string]any{"type": "direct", "tag": TagDirect})

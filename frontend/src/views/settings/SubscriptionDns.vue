@@ -2,6 +2,7 @@
 // 订阅专属 DNS: the DNS a subscription names (found when it is added or
 // updated) is used for its own nodes. Each subscription has a switch; a DNS
 // of one's own can be typed in with 编辑, which few people need.
+import HelpTip from '../../components/HelpTip.vue'
 import { computed } from 'vue'
 import { t } from '../../i18n'
 import { api, type Group, type GroupDNS } from '../../api'
@@ -41,8 +42,8 @@ async function edit(g: Group) {
 <template>
   <div class="form-row top">
     <div class="label">
-      {{ t('订阅专属 DNS') }}
-      <span class="hint">{{ t('按订阅里的配置，只用于它的节点；添加或更新订阅时自动识别') }}</span>
+      <span>{{ t('订阅专属 DNS') }}<HelpTip :text="t('部分订阅在配置中指定了自己的 DNS 服务器。添加或更新订阅时自动读取，只用于解析该订阅的节点地址，不影响其他域名。')" /></span>
+      <span class="hint">{{ t('订阅自带的 DNS，仅用于其节点') }}</span>
     </div>
     <div class="control">
       <span v-if="!subs.length" class="faint">{{ t('还没有添加订阅') }}</span>

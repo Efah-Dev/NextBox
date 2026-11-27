@@ -14,6 +14,14 @@ export function formatBytes(n: number): string {
 
 export const formatSpeed = (n: number) => formatBytes(n) + '/s'
 
+/** A short date and time: "11/26 14:30" this year, "2025/11/26" before. */
+export function shortTime(unixSeconds: number): string {
+  const d = new Date(unixSeconds * 1000)
+  const pad = (x: number) => String(x).padStart(2, '0')
+  if (d.getFullYear() !== new Date().getFullYear()) return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export function formatDuration(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
   const h = Math.floor(s / 3600)
@@ -71,27 +79,35 @@ export interface MenuItem {
   action: () => void
 }
 
-// ---- toasts (PCL-style hint bar, bottom left) ----
+// ---- notices (bottom right, Notices.vue) ----
 
 export interface Toast {
   id: number
   text: string
   kind: 'info' | 'success' | 'error'
-  /** a button in the toast, such as 撤销 */
+  /** a button in the notice, such as 撤销 */
   action?: { label: string; run: () => void }
+  /** how long it stays (ms); hovering it pauses the time */
+  ms: number
 }
 
 export const toasts = reactive<Toast[]>([])
 let toastSeq = 0
+const MAX_TOASTS = 3
+
+export function closeToast(id: number) {
+  const i = toasts.findIndex((t) => t.id === id)
+  if (i >= 0) toasts.splice(i, 1)
+}
 
 export function toast(text: string, kind: Toast['kind'] = 'info', action?: Toast['action']) {
   const id = ++toastSeq
-  const close = () => {
-    const i = toasts.findIndex((t) => t.id === id)
-    if (i >= 0) toasts.splice(i, 1)
-  }
-  toasts.push({ id, text, kind, action: action && { label: action.label, run: () => (close(), action.run()) } })
-  setTimeout(close, kind === 'error' || action ? 6000 : 3000)
+  // the same message again (a repeated click) replaces the old one
+  const same = toasts.findIndex((x) => x.text === text && x.kind === kind)
+  if (same >= 0) toasts.splice(same, 1)
+  const ms = kind === 'error' || action ? 6000 : text.length > 60 ? 4500 : 3500
+  toasts.push({ id, text, kind, ms, action: action && { label: action.label, run: () => (closeToast(id), action.run()) } })
+  while (toasts.length > MAX_TOASTS) toasts.shift()
 }
 
 /** Runs an async action and reports its result / error as a toast. */

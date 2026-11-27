@@ -80,7 +80,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
     <button class="btn ghost small icon" :class="{ on: open }" :title="t('解析方式')" @click.stop="toggle">
       <Icon name="dns" :size="14" />
     </button>
-    <Transition name="pop">
+    <Transition name="nb-pop">
       <div v-if="open" class="menu" :class="{ right: toRight, up: upwards }">
         <div class="menu-title">{{ t('解析方式') }}</div>
         <button v-for="c in choices()" :key="c.value" class="menu-item" :class="{ sel: c.value === current() }" @click.stop="pick(c.value)">
@@ -126,8 +126,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
   top: auto;
   bottom: calc(100% + 6px);
 }
-.menu.right.pop-enter-active,
-.menu.right.pop-leave-active {
+.menu.right.nb-pop-enter-active,
+.menu.right.nb-pop-leave-active {
   transform-origin: top left;
 }
 .menu-title {
@@ -177,14 +177,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
   color: var(--text-3);
   white-space: normal;
 }
-.pop-enter-active,
-.pop-leave-active {
-  transition: opacity 0.14s, transform 0.16s;
+.nb-pop-enter-active,
+.nb-pop-leave-active {
   transform-origin: top right;
-}
-.pop-enter-from,
-.pop-leave-to {
-  opacity: 0;
-  transform: scale(0.95) translateY(-4px);
 }
 </style>

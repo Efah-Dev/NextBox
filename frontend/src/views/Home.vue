@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { t } from '../i18n'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Card from '../components/Card.vue'
 import Icon from '../components/Icon.vue'
 import Switch from '../components/Switch.vue'
@@ -11,10 +11,22 @@ import ExitPill from '../components/ExitPill.vue'
 import { bareName, countryTitle, nodeCountry } from '../country'
 import { api, rt } from '../api'
 import { askNewClash } from '../clashImport'
+import { policies, refreshPolicies } from '../policies'
 import { currentGroup, nodesAdded, patchSettings, selectedProfile, settings, sortChosen, state, testNodes } from '../state'
 import { formatBytes, formatDuration, formatSpeed, groupName, latencyClass, latencyText, run, serverOf, toast, typeName } from '../util'
 
 const busy = ref(false)
+// a policy group used for the connection, and the member it uses
+const policyInUse = computed(() => (state.app?.selectedPolicy ? policies.list.find((p) => p.id === state.app!.selectedPolicy) : undefined))
+const policyMember = computed(() => {
+  const p = policyInUse.value
+  return p?.nodes.find((n) => n.id === (p.now || p.selected)) ?? (p?.mode === 'select' ? p.nodes[0] : undefined)
+})
+watch(
+  () => [state.app?.selectedPolicy, state.app?.runningId, state.app?.running],
+  () => state.app?.selectedPolicy && refreshPolicies(),
+  { immediate: true },
+)
 const heroCountry = computed(() => (selectedProfile.value ? nodeCountry(selectedProfile.value, settings.value) : { code: '', how: '' as const }))
 const now = ref(Date.now())
 const session = ref({ up: 0, down: 0, count: 0 })
@@ -54,7 +66,7 @@ const tun = computed({
   set: (v) => {
     if (v && !state.app?.elevated && !state.app?.serviceReady) {
       // both ways to get the rights are explained there
-      toast(t('TUN 模式需要管理员权限，安装服务模式或以管理员运行。'), 'info')
+      toast(t('TUN 模式需要管理员权限：请安装服务模式，或以管理员身份运行。'), 'info')
       state.settingsSection = 'tun'
       state.page = 'settings'
       return
@@ -97,7 +109,7 @@ async function updateAll() {
 async function testCurrentGroup() {
   const ids = state.profiles.map((p) => p.id)
   if (!(await sortChosen(ids.length))) return
-  run(() => testNodes(ids), t('开始测速：') + groupName(currentGroup.value))
+  run(() => testNodes(ids), t('开始测延迟：') + groupName(currentGroup.value))
   state.page = 'nodes'
 }
 
@@ -151,7 +163,20 @@ onUnmounted(() => {
       <div>
         <div class="side-title">{{ t('当前节点') }}</div>
         <div class="hero" @click="state.page = 'nodes'">
-          <template v-if="selectedProfile">
+          <template v-if="policyInUse">
+            <div class="row">
+              <span class="badge"><Icon name="layers" :size="11" />{{ t('分组代理') }}</span>
+              <span class="faint small">{{ policyInUse.mode === 'auto' ? t('自动选最快') : t('手动选择') }}</span>
+            </div>
+            <div class="hero-name">
+              <span class="ellipsis" :title="policyInUse.name">{{ policyInUse.name }}</span>
+            </div>
+            <div class="hero-server faint ellipsis">
+              <template v-if="policyMember">→ {{ bareName(policyMember.name) }} · <span :class="latencyClass(policyMember.latency)">{{ latencyText(policyMember.latency) }}</span></template>
+              <template v-else>{{ t('{0} 个节点', policyInUse.nodes.length) }}</template>
+            </div>
+          </template>
+          <template v-else-if="selectedProfile">
             <div class="row">
               <span v-if="selectedProfile.type === 'chain'" class="badge chain"><Icon name="route" :size="11" />{{ t('链式') }}</span>
               <span v-else class="badge">{{ typeName(selectedProfile.type) }}</span>
@@ -185,7 +210,7 @@ onUnmounted(() => {
               { value: 'direct', label: t('全部直连') },
             ]"
           />
-          <Transition name="pop">
+          <Transition name="nb-pop">
             <div v-if="ruleTip" class="rule-tip">
               <b>{{ t('已切换到规则分流') }}</b>
               <p>{{ t('默认绕过中国大陆的网站和 IP，其余走代理，无需配置。有其他需求可以自己添加规则。') }}</p>
@@ -651,14 +676,5 @@ onUnmounted(() => {
   justify-content: flex-end;
   gap: 6px;
   margin-top: 10px;
-}
-.pop-enter-active,
-.pop-leave-active {
-  transition: opacity 0.2s, transform 0.2s;
-}
-.pop-enter-from,
-.pop-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
 }
 </style>

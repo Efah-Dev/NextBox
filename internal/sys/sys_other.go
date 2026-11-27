@@ -88,3 +88,14 @@ func DeleteAutoStartTask() {}
 
 func TaskbarReady() bool             { return true }
 func WaitTaskbar(time.Duration) bool { return true }
+
+// Hotkeys does nothing outside Windows.
+type Hotkeys struct{}
+
+var ErrHotkeyTaken = errors.New("hotkey taken")
+
+func StartHotkeys(on func(id int)) *Hotkeys             { return &Hotkeys{} }
+func (h *Hotkeys) Set(list map[int]Combo) map[int]error { return nil }
+func (h *Hotkeys) Test(c Combo) error                   { return nil }
+
+func SystemDark() bool { return false }

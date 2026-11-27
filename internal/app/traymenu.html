@@ -1,0 +1,412 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- NextBox's tray menu (traypopup_windows.go). The fonts of the app are
+     put in place of the marker below; everything else is in this file. -->
+<style>/*FONTS*/</style>
+<style>
+:root {
+  --accent: #f472b6;
+  --card: #ffffff;
+  --text: #1d2a3b;
+  --text-2: #5a6a80;
+  --text-3: #95a2b5;
+  --line: #e9edf4;
+  --edge: rgba(17, 30, 52, 0.10);
+  --shadow: 0 3px 10px rgba(17, 30, 52, 0.16);
+  --hover: color-mix(in srgb, var(--accent) 9%, transparent);
+  --soft: color-mix(in srgb, var(--accent) 12%, var(--card));
+  --soft-2: color-mix(in srgb, var(--accent) 22%, var(--card));
+  --off: color-mix(in srgb, var(--text-3) 16%, transparent);
+  --good: #17a35a;
+  --mid: #d99a06;
+  --bad: #e5484d;
+  --ease: cubic-bezier(0.2, 0.8, 0.3, 1);
+  --move: cubic-bezier(0.32, 0.72, 0, 1);
+  color-scheme: light;
+}
+:root.dark {
+  --card: #1b2230;
+  --text: #e3e9f3;
+  --text-2: #9eabbf;
+  --text-3: #66738a;
+  --line: #2a3344;
+  --edge: rgba(255, 255, 255, 0.09);
+  --shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+  --hover: rgba(255, 255, 255, 0.05);
+  --soft: color-mix(in srgb, var(--accent) 18%, var(--card));
+  --soft-2: color-mix(in srgb, var(--accent) 28%, var(--card));
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+/* The window is see-through and never changes size while it is shown (see
+   place in traypopup_windows.go); #root is the menu card in it, against the
+   edge next to the taskbar, and grows away from it. */
+html, body { margin: 0; background: transparent; overflow: hidden; height: 100%; }
+body { display: flex; flex-direction: column; padding: 12px; /* popupMargin */ }
+body.edge-bottom { justify-content: flex-end; }
+body {
+  font: 500 12.5px/1.45 'Twemoji Country Flags', 'Noto Sans SC Variable', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+  color: var(--text);
+  user-select: none;
+  cursor: default;
+  -webkit-font-smoothing: antialiased;
+}
+#root { flex-shrink: 0; max-height: 100%; padding: 8px; background: var(--card); border-radius: 10px; box-shadow: 0 0 0 1px var(--edge), var(--shadow); overflow: hidden; transition: opacity 0.16s ease-out, transform 0.28s var(--move); }
+/* the menu rises a little as it opens */
+#root.pre { opacity: 0; transform: translateY(-10px); }
+.edge-bottom #root.pre { transform: translateY(10px); }
+/* fades out before the window hides: see nb.hidden */
+#root.gone { opacity: 0 !important; transition: opacity 0.1s ease-in !important; }
+/* Moving into a list pushes the page aside and back again while the card
+   eases to the new page's height. */
+#stage { position: relative; overflow: hidden; margin: -8px; padding: 8px; display: flex; flex-direction: column; transition: height 0.28s var(--move); }
+.edge-bottom #stage { justify-content: flex-end; }
+.view.leaving { position: absolute; top: 8px; left: 8px; right: 8px; pointer-events: none; }
+.edge-bottom .view.leaving { top: auto; bottom: 8px; }
+.view.in-right, .view.in-left, .view.leaving { will-change: transform, opacity; }
+/* the page on top covers the other one, with a soft edge */
+.view.in-right, .view.leaving.to-right { background: var(--card); box-shadow: -10px 0 18px -12px rgba(17, 30, 52, 0.35); }
+.view.in-right { position: relative; z-index: 1; animation: in-right 0.28s var(--move); }
+.view.in-left { animation: in-left 0.28s var(--move); }
+.view.leaving.to-left { animation: out-left 0.28s var(--move) forwards; }
+.view.leaving.to-right { animation: out-right 0.28s var(--move) forwards; z-index: 1; }
+@keyframes in-right { from { transform: translateX(calc(100% + 16px)); } }
+@keyframes in-left { from { transform: translateX(-28%); opacity: 0.2; } }
+@keyframes out-left { to { transform: translateX(-28%); opacity: 0; } }
+@keyframes out-right { to { transform: translateX(calc(100% + 16px)); } }
+@media (prefers-reduced-motion: reduce) { .view, .ic svg, #root, #stage { animation: none !important; transition: none !important; } }
+
+.head { display: flex; align-items: center; gap: 10px; padding: 6px 6px 10px; }
+.paw { width: 30px; height: 30px; border-radius: 9px; background: var(--accent); display: grid; place-items: center; flex-shrink: 0; }
+.paw svg { width: 17px; height: 17px; }
+.paw.off { background: var(--off); }
+.st { flex: 1; min-width: 0; }
+.st b { display: block; font-size: 13px; }
+.st small { display: block; color: var(--text-3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sw { width: 34px; height: 19px; border-radius: 999px; background: var(--off); position: relative; flex-shrink: 0; transition: background 0.2s; cursor: pointer; border: 0; padding: 0; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left 0.2s var(--ease); }
+.sw.on { background: var(--accent); }
+.sw.on::after { left: 17px; }
+.sw.small { width: 28px; height: 16px; }
+.sw.small::after { width: 12px; height: 12px; }
+.sw.small.on::after { left: 14px; }
+
+.pills { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 2px 8px; }
+.pill { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 7px 9px; border-radius: 9px; background: var(--off); font-size: 12px; cursor: pointer; transition: background 0.2s, color 0.2s; }
+.pill.on { background: var(--soft-2); color: var(--accent); font-weight: 700; }
+.seg { display: flex; gap: 2px; padding: 2px; margin: 0 2px 8px; border-radius: 9px; background: var(--off); }
+.seg span { flex: 1; text-align: center; padding: 4px 0; border-radius: 7px; font-size: 12px; color: var(--text-2); cursor: pointer; transition: background 0.2s, color 0.2s, box-shadow 0.2s; }
+.seg span.on { background: var(--card); color: var(--accent); font-weight: 700; box-shadow: 0 1px 3px rgba(17, 52, 110, .12); }
+.hr { height: 1px; background: var(--line); margin: 4px 6px; }
+.title { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-3); padding: 6px 9px 2px; }
+.item { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 7px; cursor: pointer; min-width: 0; transition: background 0.15s; }
+.item:active { background: var(--soft); }
+.item:hover, .item.kb { background: var(--hover); }
+.item .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item .r { color: var(--text-3); font-size: 11px; display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.item.sel { background: var(--soft); }
+.item.sel .name { font-weight: 700; }
+.chev { width: 12px; height: 12px; flex-shrink: 0; color: var(--text-3); }
+.ic { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-3); display: grid; place-items: center; }
+.ic svg { width: 14px; height: 14px; animation: pop 0.2s var(--ease); }
+.ic svg[data-still] { animation: none; }
+@keyframes pop { from { transform: scale(0.4); opacity: 0; } }
+.sel .ic { color: var(--accent); }
+.tag { font-size: 10px; font-weight: 700; padding: 0 6px; border-radius: 999px; line-height: 16px; background: var(--soft-2); color: var(--accent); }
+.ms { font: 600 11px 'Cascadia Mono', Consolas, monospace; }
+.ms.g { color: var(--good); } .ms.m { color: var(--mid); } .ms.b { color: var(--bad); }
+
+.bar { display: flex; align-items: center; gap: 6px; padding: 2px 2px 6px; }
+.back { width: 26px; height: 26px; border-radius: 7px; border: 0; background: transparent; color: var(--text-2); display: grid; place-items: center; cursor: pointer; }
+.back:hover { background: var(--hover); color: var(--text); }
+.bar b { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.act { height: 26px; padding: 0 9px; border-radius: 7px; border: 0; background: var(--off); color: var(--text-2); font: inherit; font-size: 11.5px; display: flex; align-items: center; gap: 5px; cursor: pointer; flex-shrink: 0; transition: background 0.15s, color 0.15s; }
+.act:hover, .act.busy { background: var(--soft-2); color: var(--accent); }
+.act:disabled { opacity: 0.5; pointer-events: none; }
+.act svg { width: 13px; height: 13px; }
+.act.busy svg { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.search { margin: 0 2px 6px; height: 28px; width: calc(100% - 4px); border-radius: 7px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; padding: 0 9px; outline: none; }
+.search:focus { border-color: var(--accent); }
+.list { max-height: 360px; overflow-y: auto; margin: 0 -2px; padding: 0 2px; }
+.list::-webkit-scrollbar { width: 6px; }
+.list::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text-3) 45%, transparent); border-radius: 3px; }
+.empty { padding: 14px 9px; color: var(--text-3); text-align: center; }
+.flag { margin-right: 6px; }
+.sub { display: block; font-size: 10.5px; color: var(--text-3); font-weight: 500; }
+</style>
+</head>
+<body>
+<div id="root"><div id="stage"></div></div>
+<script>
+(() => {
+  const icons = {
+    paw: '<svg viewBox="0 0 24 24"><g fill="#fff"><ellipse cx="6" cy="9" rx="2.2" ry="2.8"/><ellipse cx="10.5" cy="5.5" rx="2.2" ry="2.8"/><ellipse cx="15.5" cy="6" rx="2.2" ry="2.8"/><ellipse cx="19" cy="10.5" rx="2" ry="2.5"/><path d="M12.5 11c3.5 0 6 3.6 6 6.3 0 2.3-2 3.2-3.8 2.7-1.2-.3-1.6-.7-2.4-.7s-1.3.4-2.5.7C8 20.4 6 19.5 6 17.4 6 14.6 9 11 12.5 11z"/></g></svg>',
+    chev: '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>',
+    back: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
+    folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>',
+    layers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5zM3 13l9 5 9-5"/></svg>',
+    bolt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></svg>',
+    spin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>',
+    power: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v8"/><path d="M7 6.3a7.5 7.5 0 1 0 10 0"/></svg>',
+  }
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+  const send = (m) => window.chrome.webview.postMessage(JSON.stringify(m))
+  const root = document.getElementById('root')
+  const stage = document.getElementById('stage')
+  let S = null // the state from NextBox
+  let view = 'main' // main | group:<id> | policies
+  let slide = '' // '' (an update), 'in' or 'back': how the next page comes in
+  let last = '' // the state drawn last, as JSON
+  let query = ''
+  let timer = 0
+  const L = (k) => (S && S.l[k]) || k
+  // NextBox works the theme out (its setting, or Windows' for "auto")
+  const dark = () => !!S.dark
+  // a flag from an ISO code, unless the name starts with one already
+  const flagged = (name, code) => {
+    const has = /^[🇦-🇿]{2}/u.test(name)
+    if (has || !/^[A-Za-z]{2}$/.test(code || '')) return esc(name)
+    const flag = String.fromCodePoint(...[...code.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65))
+    return `<span class="flag">${flag}</span>${esc(name)}`
+  }
+  const lat = (ms) => (ms > 0 ? `<span class="ms ${ms < 300 ? 'g' : ms < 800 ? 'm' : 'b'}">${ms} ms</span>` : ms < 0 ? '<span class="ms b">—</span>' : '')
+  const pad = (n) => String(n).padStart(2, '0')
+  function uptime() {
+    if (!S.running || !S.since) return ''
+    const s = Math.max(0, Math.floor((Date.now() - S.since) / 1000))
+    const h = Math.floor(s / 3600)
+    return (h ? h + ':' : '') + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60)
+  }
+  const modeName = (m) => ({ rule: L('规则'), global: L('全局'), direct: L('直连') })[m] || ''
+
+  function main() {
+    const cur = S.current ? esc(S.current) + (S.via ? ' · ' + esc(S.via) : '') : ''
+    let h = `<div class="head"><span class="paw ${S.running ? '' : 'off'}">${icons.paw}</span>
+      <div class="st"><b id="status">${S.running ? L('已连接') + ' · ' + uptime() : L('未连接')}</b>
+      <small>${[modeName(S.mode), cur, S.parts.latency && !S.policyId && S.latency > 0 ? S.latency + ' ms' : ''].filter(Boolean).join(' · ')}</small></div>
+      <button class="sw ${S.running ? 'on' : ''}" data-a="toggle" aria-label="power"></button></div>`
+    if (S.parts.quick) {
+      h += `<div class="pills"><div class="pill ${S.sysProxy ? 'on' : ''}" data-a="sysProxy" title="${L('连接后让浏览器等遵循 Windows 代理设置的程序经过 NextBox')}">${L('设为系统代理')}<span class="sw small ${S.sysProxy ? 'on' : ''}"></span></div>
+        <div class="pill ${S.tun ? 'on' : ''}" data-a="tun" title="${L('接管所有程序的流量')}">${L('TUN 模式')}<span class="sw small ${S.tun ? 'on' : ''}"></span></div></div>`
+    }
+    if (S.parts.mode) {
+      h += `<div class="seg">${['global', 'rule', 'direct'].map((m) => `<span class="${S.mode === m ? 'on' : ''}" data-a="mode" data-v="${m}">${modeName(m)}</span>`).join('')}</div>`
+    }
+    const groups = S.parts.nodes ? S.groups || [] : []
+    const policies = S.parts.policies ? S.policies || [] : []
+    if (groups.length || policies.length) {
+      h += `<div class="hr"></div><div class="title">${L('节点')}</div>`
+      for (const g of groups) {
+        const here = !S.policyId && g.id === S.groupId
+        h += `<div class="item ${here ? 'sel' : ''}" data-go="group:${g.id}"><span class="ic">${icons.folder}</span><span class="name">${esc(g.name)}</span>
+          <span class="r">${here ? `<span class="tag">${L('当前')}</span>` : ''}${g.count}${icons.chev}</span></div>`
+      }
+      if (policies.length) {
+        const used = policies.find((p) => p.id === S.policyId)
+        h += `<div class="item ${used ? 'sel' : ''}" data-go="policies"><span class="ic">${icons.layers}</span><span class="name">${L('分组代理')}</span>
+          <span class="r">${used ? `<span class="tag">${L('当前')}</span>` : ''}${policies.length}${icons.chev}</span></div>`
+      }
+    }
+    h += `<div class="hr"></div>
+      <div class="item" data-a="quit"><span class="ic">${icons.power}</span><span class="name">${L('退出')}</span><span class="r">v${esc(S.version)}</span></div>`
+    return h
+  }
+
+  function group(id) {
+    const g = (S.groups || []).find((x) => x.id === id)
+    if (!g) return main()
+    const q = query.trim().toLowerCase()
+    const nodes = (g.nodes || []).filter((n) => !q || n.name.toLowerCase().includes(q))
+    // the subscription's own test button: tests it, or stops a running test
+    const test = S.testing
+      ? `<button class="act busy" data-a="testGroup" data-id="${g.id}">${icons.spin}${L('停止')}</button>`
+      : `<button class="act" data-a="testGroup" data-id="${g.id}"${g.count ? '' : ' disabled'}>${icons.bolt}${L('测延迟')}</button>`
+    let h = `<div class="bar"><button class="back" data-go="main" aria-label="${L('返回')}">${icons.back}</button><b>${esc(g.name)}</b>${test}</div>`
+    if ((g.nodes || []).length > 10) h += `<input class="search" id="q" placeholder="${L('搜索节点')}" value="${esc(query)}" spellcheck="false">`
+    h += '<div class="list">'
+    for (const n of nodes) {
+      const sel = !S.policyId && n.id === S.selectedId
+      h += `<div class="item ${sel ? 'sel' : ''}" data-a="node" data-id="${n.id}"><span class="ic">${sel ? icons.check : ''}</span><span class="name">${flagged(n.name, n.country)}</span>
+        <span class="r">${S.parts.latency ? lat(n.latency) : ''}</span></div>`
+    }
+    if (!nodes.length) h += `<div class="empty">${q ? L('没有找到') : L('没有节点')}</div>`
+    return h + '</div>'
+  }
+
+  function policies() {
+    let h = `<div class="bar"><button class="back" data-go="main" aria-label="${L('返回')}">${icons.back}</button><b>${L('分组代理')}</b></div><div class="list">`
+    for (const p of S.policies || []) {
+      const sel = p.id === S.policyId
+      h += `<div class="item ${sel ? 'sel' : ''}" data-a="policy" data-id="${p.id}"><span class="ic">${sel ? icons.check : ''}</span>
+        <span class="name">${esc(p.name)}<span class="sub">${p.auto ? L('自动选最快') : L('手动选择')}${p.now ? ' · ' + esc(p.now) : ''}</span></span></div>`
+    }
+    return h + '</div>'
+  }
+
+  // morph makes the element a look like b, keeping the elements both have,
+  // so that a change of the state animates (switches slide, a pick fades in)
+  // instead of the whole page being drawn anew.
+  function morph(a, b) {
+    for (const { name } of [...a.attributes]) if (!b.hasAttribute(name)) a.removeAttribute(name)
+    for (const { name, value } of [...b.attributes]) if (a.getAttribute(name) !== value) a.setAttribute(name, value)
+    const was = [...a.childNodes]
+    const now = [...b.childNodes]
+    now.forEach((n, i) => {
+      const o = was[i]
+      if (!o) a.appendChild(n)
+      else if (o.nodeType !== n.nodeType || o.nodeName !== n.nodeName) a.replaceChild(n, o)
+      else if (n.nodeType === 1) morph(o, n)
+      else if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue
+    })
+    for (let i = now.length; i < was.length; i++) was[i].remove()
+  }
+  const PAD = 16 // #stage's padding, top and bottom
+  const page = (html) => {
+    const v = document.createElement('div')
+    v.className = 'view'
+    v.innerHTML = html
+    return v
+  }
+  // the icons of a page that comes in do not pop in one by one
+  const still = (el) => el.querySelectorAll('.ic svg').forEach((s) => s.setAttribute('data-still', ''))
+
+  function draw() {
+    if (!S) return
+    document.documentElement.classList.toggle('dark', dark())
+    if (S.accent) document.documentElement.style.setProperty('--accent', S.accent)
+    const next = page(view === 'main' ? main() : view === 'policies' ? policies() : group(Number(view.slice(6))))
+    const cur = stage.querySelector('.view:not(.leaving)')
+    const how = slide
+    slide = ''
+    if (how && cur) {
+      // the old page moves out while the new one comes in; a move still
+      // going on ends at once (the page coming in keeps no class of it, or it
+      // would stay in the layout next to the new one)
+      stage.querySelectorAll('.leaving').forEach((v) => v.remove())
+      cur.classList.remove('in-right', 'in-left')
+      const from = stage.offsetHeight
+      cur.classList.add('leaving', how === 'in' ? 'to-left' : 'to-right')
+      // (an icon's own animation ends too, and bubbles up)
+      cur.addEventListener('animationend', (e) => e.target === cur && cur.remove())
+      next.addEventListener('animationend', (e) => e.target === next && next.classList.remove('in-right', 'in-left'))
+      next.classList.add(how === 'in' ? 'in-right' : 'in-left')
+      still(next)
+      stage.appendChild(next)
+      // the card eases from the old page's height to the new one's
+      stage.style.height = from + 'px'
+      void stage.offsetHeight
+      stage.style.height = next.offsetHeight + PAD + 'px'
+      clearTimeout(stage.t)
+      stage.t = setTimeout(() => {
+        stage.style.height = ''
+        stage.querySelectorAll('.leaving').forEach((v) => v.remove())
+      }, 320)
+      return
+    }
+    if (cur) {
+      // only check marks that are new pop in
+      const had = new Set([...cur.querySelectorAll('.ic svg')].map((s) => s.closest('[data-id]')?.dataset.id))
+      next.querySelectorAll('.ic svg').forEach((s) => {
+        if (had.has(s.closest('[data-id]')?.dataset.id)) s.setAttribute('data-still', '')
+      })
+      morph(cur, next)
+    } else {
+      still(next)
+      stage.replaceChildren(next)
+    }
+    // drawn: NextBox shows the window (if it is waiting to)
+    send({ a: 'ready' })
+  }
+
+  root.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-a], [data-go]')
+    if (!el) return
+    if (el.dataset.go) {
+      slide = el.dataset.go === 'main' ? 'back' : 'in'
+      view = el.dataset.go
+      query = ''
+      return draw()
+    }
+    const m = { a: el.dataset.a }
+    if (el.dataset.id) m.id = Number(el.dataset.id)
+    if (el.dataset.v) m.v = el.dataset.v
+    // instant feedback for the switches; NextBox sends the real state after
+    if (m.a === 'toggle') S.running = !S.running
+    if (m.a === 'sysProxy') S.sysProxy = !S.sysProxy
+    if (m.a === 'mode') S.mode = m.v
+    if (m.a === 'node') Object.assign(S, { selectedId: m.id, policyId: 0 })
+    if (m.a === 'policy') S.policyId = m.id
+    if (m.a === 'testGroup') S.testing = !S.testing
+    if (['toggle', 'sysProxy', 'mode', 'node', 'policy', 'testGroup'].includes(m.a)) {
+      last = '' // whatever NextBox sends next is drawn
+      draw()
+    }
+    send(m)
+  })
+  root.addEventListener('input', (e) => {
+    if (e.target.id !== 'q') return
+    query = e.target.value
+    draw()
+  })
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (view !== 'main') {
+        slide = 'back'
+        view = 'main'
+        query = ''
+        draw()
+      } else send({ a: 'hide' })
+    }
+  })
+  document.addEventListener('contextmenu', (e) => e.preventDefault())
+  // a click next to the card, in the see-through part of the window, closes
+  // the menu (as a click anywhere else does)
+  document.addEventListener('mousedown', (e) => {
+    if (!root.contains(e.target)) send({ a: 'hide' })
+  })
+
+  window.nb = {
+    render(state, first, edge) {
+      const js = JSON.stringify(state)
+      if (!first && js === last) return // nothing changed: no redraw, no flicker
+      last = js
+      S = state
+      if (first) {
+        view = 'main'
+        query = ''
+        slide = ''
+        clearTimeout(stage.t)
+        stage.style.height = ''
+        stage.replaceChildren()
+        document.body.classList.toggle('edge-bottom', edge === 'bottom')
+        root.classList.remove('gone')
+        root.classList.add('pre') // until the window is shown: see opened
+      }
+      draw()
+    },
+    opened() {
+      void root.offsetHeight
+      root.classList.remove('pre')
+      clearInterval(timer)
+      timer = setInterval(() => {
+        const el = document.getElementById('status')
+        if (el && S && S.running) el.textContent = L('已连接') + ' · ' + uptime()
+      }, 1000)
+    },
+    // The window keeps showing its last frame when it is shown again, until
+    // the page has drawn anew: so the menu fades out, and that last frame is
+    // a blank one. NextBox hides the window then ("hidden").
+    hidden() {
+      clearInterval(timer)
+      root.classList.add('gone')
+      setTimeout(() => requestAnimationFrame(() => send({ a: 'hidden' })), 110)
+    },
+  }
+})()
+</script>
+</body>
+</html>

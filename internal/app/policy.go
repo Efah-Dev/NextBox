@@ -171,6 +171,7 @@ func (a *App) SavePolicy(p store.Policy) (store.Policy, error) {
 	if p.Mode != store.PolicySelect {
 		p.Mode = store.PolicyAuto
 	}
+	p.Interval = max(0, min(p.Interval, store.MaxPolicyInterval))
 	saved, err := a.store.SavePolicy(p)
 	if err != nil {
 		return saved, err
@@ -205,6 +206,10 @@ func (a *App) DeletePolicy(id int64) error {
 }
 
 func (a *App) restartIfPolicyUsed(id int64) {
+	if id == a.store.SelectedPolicy() {
+		go a.restartIfRunning()
+		return
+	}
 	for _, used := range config.UsedPolicies(a.store.Settings()) {
 		if used == id {
 			go a.restartIfRunning()

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // TUN 排除网段: IP ranges that stay out of the TUN interface, e.g. the
 // networks of Tailscale or ZeroTier, which only their own adapters reach.
+import Reveal from '../../motion/Reveal.vue'
 import { t } from '../../i18n'
 import { computed, ref, watch } from 'vue'
 import Icon from '../../components/Icon.vue'
@@ -33,7 +34,7 @@ function add(net: string) {
 <template>
   <div class="form-row top">
     <div class="label">
-      {{ t('TUN 排除网段') }}<span class="hint">{{ t('这些地址不进 TUN，按 Windows 原来的路由走') }}</span>
+      {{ t('TUN 排除网段') }}<span class="hint">{{ t('这些网段绕过 TUN，走系统路由') }}</span>
     </div>
     <div class="control col">
       <textarea
@@ -53,7 +54,8 @@ function add(net: string) {
         </button>
         <span class="faint small">{{ t('用 Tailscale、ZeroTier 等组网软件时，把它们的网段加进来') }}</span>
       </div>
-      <div v-if="open" class="adapters">
+      <Reveal :open="open">
+      <div class="adapters">
         <div v-if="adapters === null" class="faint small pad">{{ t('正在读取网卡…') }}</div>
         <div v-else-if="!adapters.length" class="faint small pad">{{ t('没有找到其他网卡') }}</div>
         <template v-for="a in adapters ?? []" :key="a.name">
@@ -65,6 +67,7 @@ function add(net: string) {
           </div>
         </template>
       </div>
+      </Reveal>
     </div>
   </div>
 </template>
