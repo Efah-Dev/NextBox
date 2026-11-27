@@ -460,6 +460,9 @@ func Build(in Input) (map[string]any, error) {
 			"cache_file": cacheFile,
 		},
 	}
+	if err := withGost(cfg); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 
@@ -720,7 +723,7 @@ func BuildTest(s store.Settings, nodes []store.Profile, member func(int64) (stor
 	if s.EnableIPv6 {
 		strategy = "prefer_ipv4"
 	}
-	return map[string]any{
+	cfg := map[string]any{
 		"log": map[string]any{"level": "error", "timestamp": true},
 		"dns": map[string]any{"servers": append([]any{directDNS}, subServers...), "strategy": strategy},
 		"inbounds": []any{map[string]any{
@@ -740,7 +743,11 @@ func BuildTest(s store.Settings, nodes []store.Profile, member func(int64) (stor
 		"experimental": map[string]any{
 			"clash_api": map[string]any{"external_controller": clashAPI, "secret": secret},
 		},
-	}, nil
+	}
+	if err := withGost(cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 func TestTag(id int64) string { return "node-" + strconv.FormatInt(id, 10) }

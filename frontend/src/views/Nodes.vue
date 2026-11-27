@@ -246,8 +246,11 @@ async function copyAll() {
   const text = await run(() => api.exportLinks(nodes.map((p) => p.id)))
   if (text) {
     await rt.clipboardSet(text)
-    let msg = t('已复制 {0} 个节点的链接', nodes.length)
+    const copied = text.split('\n').length
+    let msg = t('已复制 {0} 个节点的链接', copied)
     if (chains) msg += t('（跳过 {0} 个链式代理，它们没有分享链接）', chains)
+    // nodes such as Shadowsocks with ShadowTLS have no share link either
+    if (copied < nodes.length) msg += t('（跳过 {0} 个没有分享链接格式的节点）', nodes.length - copied)
     toast(msg, 'success')
   }
 }

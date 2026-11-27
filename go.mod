@@ -5,9 +5,11 @@ go 1.25.0
 require (
 	fyne.io/systray v1.12.2
 	github.com/Microsoft/go-winio v0.6.2
+	github.com/gorilla/websocket v1.5.3
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/wailsapp/go-webview2 v1.0.22
 	github.com/wailsapp/wails/v2 v2.17.0
+	github.com/xtaci/smux v1.5.50
 	golang.org/x/net v0.56.0
 	golang.org/x/sys v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -20,7 +22,6 @@ require (
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e // indirect
 	github.com/labstack/echo/v4 v4.15.3 // indirect
 	github.com/labstack/gommon v0.5.0 // indirect

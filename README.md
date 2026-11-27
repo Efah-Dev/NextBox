@@ -33,26 +33,25 @@ NextBox 是 [sing-box](https://github.com/SagerNet/sing-box) 的 Windows 图形�
 
 > NextBox 是独立项目，与 SagerNet / sing-box 以及 MatsuriDayo / nekoray 没有隶属或背书关系。
 
-## 2.5.0 更新
+## 2.5.1 更新
 
 **新增**
 
-- 托盘菜单重新设计：按订阅选节点、选分组代理，每个订阅可以直接测延迟；选完菜单不关，跟随深色模式
-- 全局快捷键：连接、系统代理、TUN、路由模式、显示主界面、测延迟，默认不设置
-- 粘贴或拖进窗口即可导入，自动分辨订阅、节点链接、Clash / sing-box 配置和备份文件
-- 节点页网格视图，右键节点打开操作菜单
-- 下载测速，时长和流量上限可以自己设
-- 直接用分组代理连接，流量仍按实际节点统计；自动分组可以单独设测试间隔
+- 支持 Clash.Meta 的 gost-plugin 节点（Shadowsocks），可以导出和导入分享链接
+- 更新 Clash 订阅时一起下载其中的 proxy-providers
+- 支持 Clash 订阅里的 Hysteria 节点
 
 **改进**
 
-- 「测速」改为「测延迟」，新安装默认 URL 测试
-- 设置页一次显示一个分区，说明更短，细节放在问号里
-- 提示统一从右下角弹出，界面加入过渡动画
-- 新建分组代理默认手动挑选，列表显示协议和服务器
-- 内核升级到 sing-box 1.14.5
+- 托盘菜单左上角改用应用图标
+- 批量复制分享链接时跳过没有分享链接的节点，其余照常复制
 
-完整记录见 [Releases](https://github.com/Efah-Dev/NextBox/releases)。
+**修复**
+
+- Clash 订阅读不出节点时，报错改为说明真正的原因
+- Clash 配置里有重复的键时整份无法导入
+
+2.5.0 带来了重新设计的托盘菜单、全局快捷键、拖入导入、网格视图、下载测速和分组代理连接。完整记录见 [Releases](https://github.com/Efah-Dev/NextBox/releases)。
 
 ## 功能
 

@@ -401,17 +401,27 @@ func (a *App) ReorderProfiles(groupID int64, ids []int64) error {
 	return err
 }
 
+// ExportLinks returns the share links of the given nodes, one per line. A
+// node that has no share link fails a single export; among several it is
+// left out (the caller counts the lines), so the others are still copied.
 func (a *App) ExportLinks(ids []int64) (string, error) {
 	var lines []string
+	var firstErr error
 	for _, p := range a.store.ProfilesByIDs(ids) {
 		if p.IsChain() {
 			continue // there is no share-link format for chain proxies
 		}
 		l, err := link.Export(p.Name, p.Outbound)
 		if err != nil {
-			return "", fmt.Errorf("%s: %w", p.Name, err)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("%s: %w", p.Name, err)
+			}
+			continue
 		}
 		lines = append(lines, l)
+	}
+	if len(lines) == 0 && firstErr != nil {
+		return "", firstErr
 	}
 	return strings.Join(lines, "\n"), nil
 }

@@ -31,6 +31,8 @@ The full license texts are included in the release package under `licenses/`.
 | fyne systray (`fyne.io/systray` v1.12.2, modified: retries adding the tray icon, see `third_party/systray/NEXTBOX.md`) | Apache-2.0 |
 | go-winio (`github.com/Microsoft/go-winio`, named pipes of service mode; also in `core/NextBoxService.exe`) | MIT |
 | yaml.v3 (`gopkg.in/yaml.v3`) | MIT and Apache-2.0 |
+| Gorilla WebSocket (`github.com/gorilla/websocket` v1.5.3, the gost-plugin relay) | BSD-2-Clause |
+| smux (`github.com/xtaci/smux` v1.5.50, the gost-plugin relay) | MIT |
 | Go extended libraries (`golang.org/x/sys`, `x/net`, `x/crypto`, `x/text`) | BSD-3-Clause |
 | Vue 3 (`vue`) | MIT |
 | maxminddb-golang (`github.com/oschwald/maxminddb-golang`) | ISC |

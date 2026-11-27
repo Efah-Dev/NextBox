@@ -355,7 +355,18 @@ func parseShadowsocks(raw string) (*Node, error) {
 	}
 	if plugin := u.Query().Get("plugin"); plugin != "" {
 		pname, opts, _ := strings.Cut(plugin, ";")
-		if pname == "simple-obfs" {
+		switch pname {
+		case "gost-plugin": // see gostlink.go; run through a local relay
+			g, err := gostFromPluginOpts(opts)
+			if err != nil {
+				return nil, err
+			}
+			ob["gost"] = g
+			if v, err := strconv.Atoi(u.Query().Get("uot")); err == nil && v > 0 {
+				ob["udp_over_tcp"] = map[string]any{"enabled": true, "version": v}
+			}
+			return &Node{Name: name, Outbound: ob}, nil
+		case "simple-obfs":
 			pname = "obfs-local"
 		}
 		ob["plugin"] = pname

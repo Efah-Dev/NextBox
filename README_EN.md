@@ -33,24 +33,25 @@ Rules and backups work with [NextBox for Android](https://github.com/Efah-Dev/Ne
 
 > NextBox is an independent project, not affiliated with or endorsed by SagerNet / sing-box or MatsuriDayo / nekoray.
 
-## What's new in 2.5.0
+## What's new in 2.5.1
 
 **New**
 
-- A redesigned tray menu: pick a node per subscription or a policy group, test a subscription's latency right there; the menu stays open while you pick and follows the dark theme
-- System-wide hotkeys for connect, system proxy, TUN, route mode, show window and latency test (none set by default)
-- Paste or drop anything onto the window: subscriptions, node links, Clash / sing-box configs and backups are told apart
-- Grid view on the Nodes page; right-click a node for its actions
-- Download speed test with your own time and data limits
-- Connect through a policy group, with traffic still counted per node; automatic groups get their own test interval
+- Clash.Meta's gost-plugin (Shadowsocks) nodes, also as share links
+- A Clash subscription's proxy-providers are downloaded when it updates
+- Hysteria nodes from Clash subscriptions
 
 **Improved**
 
-- "Speed test" is now "latency test", and new installs test by URL
-- Settings show one section at a time, with shorter text and details behind "?"
-- Messages pop up in the bottom-right corner, and the interface has transitions
-- New policy groups start with hand-picked nodes and show each node's protocol and server
-- sing-box 1.14.5
+- The tray menu shows the app icon at the top left
+- Copying the share links of several nodes skips the ones that have none and copies the rest
+
+**Fixed**
+
+- When no nodes can be read from a Clash subscription, the error now says why
+- Clash configs with a repeated key could not be imported
+
+2.5.0 brought the redesigned tray menu, system-wide hotkeys, drag-and-drop import, the grid view, the download speed test and connecting through a policy group.
 
 Every release is on the [Releases](https://github.com/Efah-Dev/NextBox/releases) page.
 

@@ -433,3 +433,27 @@ func TestRouteView(t *testing.T) {
 		}
 	}
 }
+
+func TestReorderGroups(t *testing.T) {
+	dir := t.TempDir()
+	s := open(t, dir)
+	var ids []int64
+	for _, n := range []string{"a", "b", "c"} {
+		g, err := s.AddGroup(Group{Name: n})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, g.ID)
+	}
+	// c first, a missing from the list keeps its place after the listed ones
+	if err := s.ReorderGroups([]int64{ids[2], ids[1]}); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, g := range open(t, dir).Groups() { // as saved
+		names = append(names, g.Name)
+	}
+	if len(names) != 3 || names[0] != "c" || names[1] != "b" || names[2] != "a" {
+		t.Errorf("order %v", names)
+	}
+}

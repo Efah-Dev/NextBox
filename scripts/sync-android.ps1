@@ -12,7 +12,7 @@ if (-not (Test-Path $Android)) { throw "NextBox for Android not found at $Androi
 $Android = (Resolve-Path $Android).Path
 
 # whole packages, and single files of packages that also have app-specific files
-$dirs = @('clash', 'config', 'link', 'ruleset', 'store', 'sub', 'vault')
+$dirs = @('clash', 'config', 'gost', 'link', 'ruleset', 'store', 'sub', 'vault')
 $files = @(
     'geo\trace.go', 'geo\trace_test.go', 'geo\asn.go', 'geo\asn_test.go', 'geo\probe.go',
     'i18n\i18n.go'

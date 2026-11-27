@@ -28,7 +28,14 @@ func Export(name string, ob map[string]any) (string, error) {
 	case "shadowsocks":
 		user := base64.RawURLEncoding.EncodeToString([]byte(str(ob, "method") + ":" + str(ob, "password")))
 		q := url.Values{}
-		if p := str(ob, "plugin"); p != "" {
+		if g, ok := ob["gost"].(map[string]any); ok {
+			// SIP002 style, as Clash.Meta names the plugin; read back by
+			// parseShadowsocks (other clients may not know gost-plugin)
+			q.Set("plugin", gostPluginString(g))
+			if uot, ok := ob["udp_over_tcp"].(map[string]any); ok && uot["enabled"] == true {
+				q.Set("uot", strconv.Itoa(max(num(uot, "version"), 1)))
+			}
+		} else if p := str(ob, "plugin"); p != "" {
 			if o := str(ob, "plugin_opts"); o != "" {
 				p += ";" + o
 			}

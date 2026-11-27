@@ -224,6 +224,32 @@ func (s *Store) DeleteGroup(id int64) error {
 	return s.saveDataLocked()
 }
 
+// ReorderGroups puts the groups into the order of ids (NextBox for Android
+// drags its group chips). Groups missing from ids keep their relative order
+// after the listed ones.
+func (s *Store) ReorderGroups(ids []int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	byID := map[int64]*Group{}
+	for _, g := range s.data.Groups {
+		byID[g.ID] = g
+	}
+	ordered := make([]*Group, 0, len(s.data.Groups))
+	for _, id := range ids {
+		if g, ok := byID[id]; ok {
+			ordered = append(ordered, g)
+			delete(byID, id)
+		}
+	}
+	for _, g := range s.data.Groups {
+		if _, ok := byID[g.ID]; ok {
+			ordered = append(ordered, g)
+		}
+	}
+	s.data.Groups = ordered
+	return s.saveDataLocked()
+}
+
 func (s *Store) CurrentGroupID() int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

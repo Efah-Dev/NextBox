@@ -4,12 +4,14 @@ package sub
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"nextbox/internal/i18n"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -44,24 +46,20 @@ func Fetch(ctx context.Context, rawURL, userAgent, proxy string) (*Result, error
 	}
 	client := &http.Client{Transport: transport, Timeout: 30 * time.Second}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(rawURL), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf(i18n.T("下载订阅失败: %w"), err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(i18n.T("下载订阅失败: HTTP %d"), resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	body, header, err := get(ctx, client, rawURL, userAgent)
 	if err != nil {
 		return nil, err
 	}
 	nodes, skipped, err := link.ParseContent(string(body))
+	if providers := link.ClashProviders(string(body)); len(providers) > 0 {
+		pn, ps := fetchProviders(ctx, client, userAgent, providers)
+		nodes, skipped = append(nodes, pn...), append(skipped, ps...)
+		if len(nodes) > 0 {
+			err = nil
+		} else if len(ps) > 0 {
+			err = errors.New(i18n.T("没有找到可用的节点。") + ps[0])
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -73,10 +71,80 @@ func Fetch(ctx context.Context, rawURL, userAgent, proxy string) (*Result, error
 	return &Result{
 		Nodes:   nodes,
 		Skipped: skipped,
-		Usage:   parseUserInfo(resp.Header.Get("subscription-userinfo")),
+		Usage:   parseUserInfo(header.Get("subscription-userinfo")),
 		Clash:   ex,
-		Title:   Title(resp.Header),
+		Title:   Title(header),
 	}, nil
+}
+
+// get downloads a subscription or proxy-provider body.
+func get(ctx context.Context, client *http.Client, rawURL, userAgent string) ([]byte, http.Header, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(rawURL), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf(i18n.T("下载订阅失败: %w"), err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf(i18n.T("下载订阅失败: HTTP %d"), resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if err != nil {
+		return nil, nil, err
+	}
+	return body, resp.Header, nil
+}
+
+// maxProviders caps how many proxy-providers one subscription may pull in.
+const maxProviders = 20
+
+// fetchProviders downloads the proxy-providers of a Clash subscription, as
+// Clash would, and keeps the nodes each one's filter lets through. A
+// provider that fails is reported in skipped and does not stop the others.
+func fetchProviders(ctx context.Context, client *http.Client, userAgent string, providers []link.ClashProvider) (nodes []*link.Node, skipped []string) {
+	for i, p := range providers {
+		if i == maxProviders {
+			skipped = append(skipped, fmt.Sprintf(i18n.T("proxy-providers 超过 %d 个，其余的没有下载"), maxProviders))
+			break
+		}
+		body, _, err := get(ctx, client, p.URL, userAgent)
+		if err != nil {
+			skipped = append(skipped, p.Name+"："+err.Error())
+			continue
+		}
+		got, sk, err := link.ParseContent(string(body))
+		skipped = append(skipped, sk...)
+		if err != nil {
+			if len(sk) == 0 {
+				skipped = append(skipped, p.Name+"："+err.Error())
+			}
+			continue
+		}
+		keep, drop := nameFilter(p.Filter), nameFilter(p.Exclude)
+		for _, n := range got {
+			if (keep == nil || keep.MatchString(n.Name)) && (drop == nil || !drop.MatchString(n.Name)) {
+				nodes = append(nodes, n)
+			}
+		}
+	}
+	return nodes, skipped
+}
+
+// nameFilter compiles a provider's node name filter; nil when there is none
+// or Go cannot read it (Clash.Meta allows a richer regexp dialect).
+func nameFilter(expr string) *regexp.Regexp {
+	if expr == "" {
+		return nil
+	}
+	re, err := regexp.Compile(expr)
+	if err != nil {
+		return nil
+	}
+	return re
 }
 
 // Title reads the subscription's name from the response headers:

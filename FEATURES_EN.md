@@ -12,8 +12,8 @@
 
 ### Nodes and subscriptions
 
-- **Protocols**: Shadowsocks (incl. ShadowTLS), VMess, VLESS (incl. Reality / Vision), Trojan, Hysteria2, TUIC, AnyTLS, NaiveProxy, SOCKS, HTTP
-- **Subscriptions**: Base64 link lists, Clash / Clash.Meta YAML, sing-box JSON; used traffic and expiry date; optional automatic updates. Updates keep your order and add new nodes at the end
+- **Protocols**: Shadowsocks (incl. ShadowTLS and Clash.Meta's gost-plugin), VMess, VLESS (incl. Reality / Vision), Trojan, Hysteria, Hysteria2, TUIC, AnyTLS, NaiveProxy, SOCKS, HTTP
+- **Subscriptions**: Base64 link lists, Clash / Clash.Meta YAML, sing-box JSON; a Clash subscription's proxy-providers are downloaded too; used traffic and expiry date; optional automatic updates. Updates keep your order and add new nodes at the end
 - **Clash conversion**: the groups of a subscription become policy groups, its rules become rule sets (one per target), its DNS settings DNS overrides; you tick what to take the first time (rules are off by default), and it follows every update. *Clash subscription content* in the group menu chooses again
 - **Subscription DNS**: when a subscription names its provider's own DNS servers, the import offers them; they are used only for that subscription's nodes, without touching other subscriptions or the global DNS. Switch them per subscription in *Settings → DNS → Subscription DNS*
 - **Import**: Ctrl+V, the Import button or a file dropped on the window; NextBox tells subscription links, node links, Clash / sing-box configs and NextBox backups apart, and names a subscription from its link or server (it asks only when neither has a name)

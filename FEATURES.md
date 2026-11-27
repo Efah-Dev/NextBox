@@ -12,8 +12,8 @@
 
 ### 节点与订阅
 
-- **协议**：Shadowsocks（含 ShadowTLS）、VMess、VLESS（含 Reality / Vision）、Trojan、Hysteria2、TUIC、AnyTLS、NaiveProxy、SOCKS、HTTP
-- **订阅**：Base64 链接列表、Clash / Clash.Meta YAML、sing-box JSON；显示已用流量和到期时间；可以按间隔自动更新。更新时保留你排好的顺序，新节点加在最后
+- **协议**：Shadowsocks（含 ShadowTLS、Clash.Meta 的 gost-plugin）、VMess、VLESS（含 Reality / Vision）、Trojan、Hysteria、Hysteria2、TUIC、AnyTLS、NaiveProxy、SOCKS、HTTP
+- **订阅**：Base64 链接列表、Clash / Clash.Meta YAML、sing-box JSON；Clash 订阅的 proxy-providers 会一起下载；显示已用流量和到期时间；可以按间隔自动更新。更新时保留你排好的顺序，新节点加在最后
 - **Clash 订阅转换**：订阅里的分组转成分组代理，规则按去向转成规则集，DNS 设置转成 DNS 复写；第一次导入时勾选要哪些（规则默认不勾选），以后随订阅更新；分组菜单的「Clash 订阅内容」可以重新选择
 - **订阅专属 DNS**：订阅里写了机场自己的 DNS 服务器时，导入时会提醒；它只用于这个订阅的节点，其他订阅和全局 DNS 不受影响。在「设置 → DNS → 订阅专属 DNS」里逐个开关
 - **导入**：按 Ctrl+V、点「导入」或把文件拖进窗口，自动分辨订阅链接、节点链接、Clash / sing-box 配置和 NextBox 备份；订阅名称取自链接或服务器，取不到时再询问

@@ -13,6 +13,45 @@ import (
 const links = "ss://YWVzLTI1Ni1nY206cGFzcw@1.2.3.4:8388#first\n" +
 	"trojan://pass@example.com:443#second\n"
 
+// A Clash subscription whose nodes are in proxy-providers gets them
+// downloaded, filtered as the provider says; a failing provider is skipped.
+func TestFetchProviders(t *testing.T) {
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/clash":
+			w.Write([]byte("mixed-port: 7890\nproxy-providers:\n" +
+				"  hk: {type: http, url: '" + srvURL + "/p1', filter: 'HK'}\n" +
+				"  all: {type: http, url: '" + srvURL + "/p2'}\n" +
+				"  bad: {type: http, url: '" + srvURL + "/gone'}\n" +
+				"proxy-groups:\n  - {name: Proxy, type: select, use: [hk, all]}\n"))
+		case "/p1":
+			w.Write([]byte("proxies:\n  - {name: HK 1, type: trojan, server: h.example, port: 443, password: p}\n" +
+				"  - {name: US 1, type: trojan, server: u.example, port: 443, password: p}\n"))
+		case "/p2":
+			w.Write([]byte(base64.StdEncoding.EncodeToString([]byte(links))))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+	res, err := Fetch(context.Background(), srv.URL+"/clash", "clash.meta", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, n := range res.Nodes {
+		names = append(names, n.Name)
+	}
+	if strings.Join(names, ",") != "first,second,HK 1" {
+		t.Errorf("nodes: %v", names)
+	}
+	if len(res.Skipped) != 1 || !strings.HasPrefix(res.Skipped[0], "bad：") {
+		t.Errorf("skipped: %v", res.Skipped)
+	}
+}
+
 func TestFetch(t *testing.T) {
 	var gotUA atomic.Value
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -13,9 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"nextbox/internal/i18n"
+	"nextbox/internal/link"
 	"nextbox/internal/store"
 )
 
@@ -68,7 +67,7 @@ func Parse(text string) (*Extras, error) {
 		} `yaml:"dns"`
 		Hosts map[string]any `yaml:"hosts"`
 	}
-	if err := yaml.Unmarshal([]byte(text), &cfg); err != nil {
+	if err := link.UnmarshalYAML([]byte(text), &cfg); err != nil {
 		return nil, err
 	}
 	ex := &Extras{}

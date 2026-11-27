@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"net/url"
 	"nextbox/internal/i18n"
+	"slices"
 	"strconv"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // supportedOutbounds lists outbound types accepted from sing-box JSON imports.
@@ -33,21 +32,19 @@ func ParseContent(text string) ([]*Node, []string, error) {
 			return nodes, skipped, nil
 		}
 	}
-	if strings.Contains(text, "proxies:") {
-		if nodes, skipped, err := parseClash(text); err == nil && len(nodes) > 0 {
-			return nodes, skipped, nil
-		}
+	// a Clash config is never read as share links: its own errors are the
+	// useful ones ("mixed-port: 7890" is not an unsupported link)
+	if looksClash(text) {
+		return parseClash(text)
 	}
 	if !strings.Contains(text, "://") {
 		decoded, err := decodeBase64(text)
 		if err != nil {
 			return nil, nil, errors.New(i18n.T("无法识别的订阅内容"))
 		}
-		text = decoded
-		if strings.Contains(text, "proxies:") {
-			if nodes, skipped, err := parseClash(text); err == nil && len(nodes) > 0 {
-				return nodes, skipped, nil
-			}
+		text = strings.TrimSpace(strings.TrimPrefix(decoded, string(rune(0xFEFF))))
+		if looksClash(text) {
+			return parseClash(text)
 		}
 	}
 	var nodes []*Node
@@ -119,16 +116,35 @@ func parseSingBoxJSON(text string) ([]*Node, []string, error) {
 
 // ---- Clash / Clash.Meta YAML ----
 
+// ErrProvidersOnly: a Clash config whose nodes are all in proxy-providers,
+// which only a subscription download can fetch (see ClashProviders).
+var ErrProvidersOnly error = providersOnly{}
+
+type providersOnly struct{}
+
+func (providersOnly) Error() string {
+	return i18n.T("这份 Clash 配置的节点都在 proxy-providers 里，请用订阅地址导入")
+}
+
+type clashDoc struct {
+	Proxies   []any          `yaml:"proxies"`
+	Old       []any          `yaml:"Proxy"` // Clash before 1.0
+	Providers map[string]any `yaml:"proxy-providers"`
+}
+
 func parseClash(text string) ([]*Node, []string, error) {
-	var cfg struct {
-		Proxies []map[string]any `yaml:"proxies"`
-	}
-	if err := yaml.Unmarshal([]byte(text), &cfg); err != nil {
-		return nil, nil, err
+	var cfg clashDoc
+	if err := UnmarshalYAML([]byte(text), &cfg); err != nil {
+		return nil, nil, fmt.Errorf(i18n.T("Clash 配置格式有误：%s"), strings.TrimPrefix(err.Error(), "yaml: "))
 	}
 	var nodes []*Node
 	var skipped []string
-	for _, p := range cfg.Proxies {
+	for _, item := range append(cfg.Proxies, cfg.Old...) {
+		p, ok := item.(map[string]any)
+		if !ok {
+			skipped = append(skipped, fmt.Sprint(item)+"："+i18n.T("不是节点"))
+			continue
+		}
 		n, err := clashProxy(p)
 		if err != nil {
 			skipped = append(skipped, cmap(p).s("name")+"："+err.Error())
@@ -136,7 +152,46 @@ func parseClash(text string) ([]*Node, []string, error) {
 		}
 		nodes = append(nodes, n)
 	}
+	if len(nodes) == 0 {
+		switch {
+		case len(skipped) > 0:
+			return nil, skipped, errors.New(i18n.T("没有找到可用的节点。") + skipped[0])
+		case len(cfg.Providers) > 0:
+			return nil, nil, ErrProvidersOnly
+		}
+		return nil, nil, errors.New(i18n.T("Clash 配置里没有节点"))
+	}
 	return nodes, skipped, nil
+}
+
+// ClashProvider is a proxy-provider of a Clash config that is downloaded
+// from a URL; Filter and Exclude are its node name regexps.
+type ClashProvider struct {
+	Name, URL, Filter, Exclude string
+}
+
+// ClashProviders lists the proxy-providers of a Clash config that have a URL.
+func ClashProviders(text string) []ClashProvider {
+	text = strings.TrimSpace(strings.TrimPrefix(text, string(rune(0xFEFF))))
+	if !looksClash(text) {
+		return nil
+	}
+	var cfg clashDoc
+	if UnmarshalYAML([]byte(text), &cfg) != nil {
+		return nil
+	}
+	var out []ClashProvider
+	for name, v := range cfg.Providers {
+		m, _ := v.(map[string]any)
+		p := cmap(m)
+		u := strings.TrimSpace(p.s("url"))
+		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			continue // file and inline providers have nothing to download
+		}
+		out = append(out, ClashProvider{Name: name, URL: u, Filter: p.s("filter"), Exclude: p.s("exclude-filter")})
+	}
+	slices.SortFunc(out, func(a, b ClashProvider) int { return strings.Compare(a.Name, b.Name) })
+	return out
 }
 
 type cmap map[string]any
@@ -314,6 +369,35 @@ func clashProxy(raw map[string]any) (*Node, error) {
 				st["fingerprint"] = fp
 			}
 			ob["shadowtls"] = st
+		case "gost-plugin":
+			// Clash.Meta only: a WebSocket with smux inside, which sing-box
+			// lacks; config.withGost runs it through a local relay.
+			o := p.m("plugin-opts")
+			if mode := firstNonEmpty(o.s("mode"), "websocket"); mode != "websocket" {
+				return nil, fmt.Errorf(i18n.T("不支持的 ss 插件 %s"), "gost-plugin "+mode)
+			}
+			g := map[string]any{"host": firstNonEmpty(o.s("host"), "bing.com"), "path": firstNonEmpty(o.s("path"), "/")}
+			// mux is on unless turned off, as in Clash.Meta
+			if v, ok := o["mux"].(bool); !ok || v {
+				g["mux"] = true
+			}
+			if o.b("tls") {
+				g["tls"] = true
+				if o.b("skip-cert-verify") {
+					g["insecure"] = true
+				}
+			}
+			if h := o.m("headers"); len(h) > 0 {
+				headers := map[string]any{}
+				for k := range h {
+					headers[k] = h.s(k)
+				}
+				g["headers"] = headers
+			}
+			ob["gost"] = g
+			if p.b("udp-over-tcp") {
+				ob["udp_over_tcp"] = map[string]any{"enabled": true, "version": max(p.i("udp-over-tcp-version"), 1)}
+			}
 		case "":
 		default:
 			return nil, fmt.Errorf(i18n.T("不支持的 ss 插件 %s"), p.s("plugin"))
@@ -341,23 +425,33 @@ func clashProxy(raw map[string]any) (*Node, error) {
 		if obfs := p.s("obfs"); obfs != "" {
 			ob["obfs"] = map[string]any{"type": obfs, "password": p.s("obfs-password")}
 		}
-		if ports := p.s("ports"); ports != "" {
-			var ranges []string
-			for _, r := range splitList(strings.ReplaceAll(ports, "/", ",")) {
-				if a, b, ok := strings.Cut(r, "-"); ok {
-					ranges = append(ranges, a+":"+b)
-				} else {
-					ranges = append(ranges, r+":"+r)
-				}
-			}
-			ob["server_ports"] = ranges
-		}
+		clashPorts(p, ob)
 		if up := p.i("up"); up > 0 {
 			ob["up_mbps"] = up
 		}
 		if down := p.i("down"); down > 0 {
 			ob["down_mbps"] = down
 		}
+	case "hysteria":
+		ob["type"] = "hysteria"
+		if a := p.s("auth-str"); a != "" {
+			ob["auth_str"] = a
+		} else if a := p.s("auth"); a != "" {
+			ob["auth"] = a // base64
+		}
+		if obfs := p.s("obfs"); obfs != "" {
+			ob["obfs"] = obfs
+		}
+		clashPorts(p, ob)
+		// both speeds are required by the hysteria protocol
+		up, down := p.i("up"), p.i("down")
+		if up <= 0 {
+			up = 10
+		}
+		if down <= 0 {
+			down = 50
+		}
+		ob["up_mbps"], ob["down_mbps"] = up, down
 	case "tuic":
 		ob["type"] = "tuic"
 		ob["uuid"] = p.s("uuid")
@@ -393,7 +487,7 @@ func clashProxy(raw map[string]any) (*Node, error) {
 			ob["transport"] = tr
 		}
 	}
-	forceTLS := typ == "trojan" || typ == "hysteria2" || typ == "tuic" || typ == "anytls"
+	forceTLS := typ == "trojan" || typ == "hysteria" || typ == "hysteria2" || typ == "tuic" || typ == "anytls"
 	if t := clashTLS(p, server, forceTLS); t != nil {
 		if typ == "tuic" {
 			if _, ok := t["alpn"]; !ok {
@@ -403,4 +497,22 @@ func clashProxy(raw map[string]any) (*Node, error) {
 		ob["tls"] = t
 	}
 	return &Node{Name: p.s("name"), Outbound: ob}, nil
+}
+
+// clashPorts reads Clash's port hopping ("ports: 2000-3000,4443") into
+// sing-box server_ports.
+func clashPorts(p cmap, ob map[string]any) {
+	ports := p.s("ports")
+	if ports == "" {
+		return
+	}
+	var ranges []string
+	for _, r := range splitList(strings.ReplaceAll(ports, "/", ",")) {
+		if a, b, ok := strings.Cut(r, "-"); ok {
+			ranges = append(ranges, a+":"+b)
+		} else {
+			ranges = append(ranges, r+":"+r)
+		}
+	}
+	ob["server_ports"] = ranges
 }
